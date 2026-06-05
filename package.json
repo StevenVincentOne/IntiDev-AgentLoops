@@ -1,0 +1,55 @@
+{
+  "name": "@stevenvincentone/intidev-agentloops",
+  "version": "0.1.0",
+  "description": "IntiDev AgentLoops - Feedback Loops for Agentic Workflows",
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "agentloop": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "cli": "tsx src/cli.ts",
+    "start": "npm run cli --",
+    "prepare": "npm run build",
+    "format": "npx prettier --write \"src/**/*.ts\" \"docs/**/*.md\" \"*.md\"",
+    "lint": "npx tsc --noEmit"
+  },
+  "keywords": [
+    "agentic",
+    "issue-tracking",
+    "ticketing",
+    "feedback-loop",
+    "devtool",
+    "observability",
+    "knowledge-base",
+    "guardrails",
+    "agent-tools"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/StevenVincentOne/IntiDev-AgentLoops.git"
+  },
+  "author": {
+    "name": "Inti / Steven Vincent"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "prettier": "^3.3.3",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "docs",
+    "images",
+    "agentloop.config.json.example"
+  ]
+}

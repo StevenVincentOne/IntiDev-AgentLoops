@@ -1,0 +1,18 @@
+name: Feature request
+description: Suggest a feature for IntiDev AgentLoops
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Feature summary
+      description: What problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: scenario
+    attributes:
+      label: Use case
+      description: Who uses this and why now?
+    validations:
+      required: false

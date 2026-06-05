@@ -1,0 +1,49 @@
+{
+  "projectName": "IntiDev AgentLoops",
+  "description": "Feedback loops for agentic workflows",
+  "defaultKind": "bug",
+  "ticketKinds": [
+    {
+      "kind": "bug",
+      "aliases": ["ISSUE"],
+      "defaultSeverity": "high",
+      "requiredFields": ["summary"]
+    },
+    {
+      "kind": "feature",
+      "aliases": ["DEV"],
+      "defaultSeverity": "medium",
+      "requiredFields": ["summary"]
+    },
+    {
+      "kind": "user_feedback",
+      "aliases": ["USER"],
+      "defaultSeverity": "high",
+      "requiredFields": ["summary", "impact"]
+    },
+    {
+      "kind": "investigation",
+      "aliases": ["INVEST"],
+      "defaultSeverity": "medium",
+      "requiredFields": ["summary"]
+    },
+    {
+      "kind": "incident",
+      "aliases": ["INC"],
+      "defaultSeverity": "critical",
+      "requiredFields": ["summary", "impact", "impactWindow"]
+    }
+  ],
+  "sources": [
+    "user_report",
+    "manual_admin",
+    "smoke",
+    "agent",
+    "ci",
+    "ingestion"
+  ],
+  "patterns": {
+    "autoCreateByFamily": true,
+    "defaultFamily": "general"
+  }
+}
