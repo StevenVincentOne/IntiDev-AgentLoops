@@ -26,6 +26,8 @@ const COMMANDS = [
   "summary",
   "convergence",
   "guard-gaps",
+  "knowledge",
+  "knowledge-gaps",
   "config",
   "mcp",
   "help",
@@ -93,6 +95,8 @@ function printHelp() {
   printLine("  summary                         print loop stats");
   printLine("  convergence [--family ..] [--min-sources N] [--all]  patterns spanning multiple sources");
   printLine("  guard-gaps [--family ..] [--include-waived] [--all-kinds]  resolved tickets missing a guard");
+  printLine("  knowledge [--family ..] [--kind ..] [--query ..]  search resolved-ticket fix knowledge");
+  printLine("  knowledge-gaps [--family ..] [--severity ..] [--source ..]  resolved tickets lacking reusable knowledge");
   printLine("  config                          print effective config");
   printLine("  mcp [--write]                   run the MCP server over stdio (read-only unless --write)");
 }
@@ -308,6 +312,34 @@ async function cmdGuardGaps(options: ArgMap) {
   printJson(await store.guardGaps({ family, includeWaived, allKinds }));
 }
 
+async function cmdKnowledge(options: ArgMap) {
+  const { store } = await ensureConfig();
+  const str = (key: string) => (typeof options[key] === "string" ? (options[key] as string) : undefined);
+  const limit = typeof options.limit === "string" ? Number(options.limit) : undefined;
+  printJson(
+    await store.searchKnowledge({
+      family: str("family"),
+      kind: str("kind"),
+      source: str("source"),
+      tag: str("tag"),
+      query: str("query"),
+      limit,
+    }),
+  );
+}
+
+async function cmdKnowledgeGaps(options: ArgMap) {
+  const { store } = await ensureConfig();
+  const str = (key: string) => (typeof options[key] === "string" ? (options[key] as string) : undefined);
+  printJson(
+    await store.knowledgeGaps({
+      family: str("family"),
+      severity: str("severity"),
+      source: str("source"),
+    }),
+  );
+}
+
 async function cmdConfig() {
   const { config } = await ensureConfig();
   printJson(config);
@@ -379,6 +411,12 @@ async function main() {
       break;
     case "guard-gaps":
       await cmdGuardGaps(options);
+      break;
+    case "knowledge":
+      await cmdKnowledge(options);
+      break;
+    case "knowledge-gaps":
+      await cmdKnowledgeGaps(options);
       break;
     case "config":
       await cmdConfig();

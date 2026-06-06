@@ -21,6 +21,14 @@ import {
   SourceConvergenceReport,
 } from "./convergence";
 import { guardGapReport, GuardGapOptions, GuardGapReport } from "./guards";
+import {
+  resolutionKnowledge,
+  knowledgeGaps,
+  KnowledgeSearchOptions,
+  ResolutionKnowledgeReport,
+  KnowledgeGapsOptions,
+  KnowledgeGapsReport,
+} from "./knowledge";
 
 type StateEnvelope = LoopState;
 
@@ -250,6 +258,18 @@ export class AgentLoopStore {
   async guardGaps(options: GuardGapOptions = {}): Promise<GuardGapReport> {
     const state = await this.ensureInitialized();
     return guardGapReport(state.tickets, this.config, options);
+  }
+
+  async searchKnowledge(
+    options: KnowledgeSearchOptions = {},
+  ): Promise<ResolutionKnowledgeReport> {
+    const state = await this.ensureInitialized();
+    return resolutionKnowledge(state.tickets, options);
+  }
+
+  async knowledgeGaps(options: KnowledgeGapsOptions = {}): Promise<KnowledgeGapsReport> {
+    const state = await this.ensureInitialized();
+    return knowledgeGaps(state.tickets, options);
   }
 
   private async transitionTicket(rawId: string, status?: TicketStatus): Promise<Ticket> {

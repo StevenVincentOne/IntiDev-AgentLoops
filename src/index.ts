@@ -21,6 +21,16 @@ export type {
   GuardGap,
   GuardGapReason,
 } from "./guards";
+export { resolutionKnowledge, knowledgeGaps, KNOWLEDGE_SCHEMA_VERSION } from "./knowledge";
+export type {
+  KnowledgeEntry,
+  KnowledgeSearchOptions,
+  ResolutionKnowledgeReport,
+  KnowledgeGap,
+  KnowledgeGapReason,
+  KnowledgeGapsOptions,
+  KnowledgeGapsReport,
+} from "./knowledge";
 export {
   createMcpServer,
   startStdioMcpServer,

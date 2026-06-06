@@ -32,6 +32,8 @@ Always available; annotated `readOnlyHint: true`.
 | `agentloop_handoff` | `id` | `{ ..., ticketId, aliases, prompt }` |
 | `agentloop_convergence` | `family?`, `minSources?`, `includeAll?` | `{ ..., filters, summary, patterns }` — patterns whose tickets span ≥ `minSources` (default 2) distinct sources |
 | `agentloop_guard_gaps` | `family?`, `includeWaived?`, `allKinds?` | `{ ..., filters, summary, gaps }` — resolved tickets (ISSUE/USER queues by default) lacking an active regression guard |
+| `agentloop_search_knowledge` | `family?`, `kind?`, `source?`, `tag?`, `query?`, `limit?` | `{ ..., filters, summary, entries }` — how prior resolved tickets were fixed (searchable corpus) |
+| `agentloop_knowledge_gaps` | `family?`, `severity?`, `source?` | `{ ..., filters, summary, gaps }` — resolved tickets whose knowledge is incomplete (missing resolution or verification) |
 
 ## Write tools
 

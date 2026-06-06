@@ -88,6 +88,8 @@ state fixture; run it with `npm test`.
 - `agentloop summary` print quick health metrics
 - `agentloop convergence` report patterns whose tickets span multiple sources
 - `agentloop guard-gaps` report resolved tickets missing a regression guard
+- `agentloop knowledge` search how prior resolved tickets were fixed
+- `agentloop knowledge-gaps` report resolved tickets lacking reusable knowledge
 - `agentloop config` print resolved configuration
 - `agentloop mcp` run the read-only MCP server over stdio
 
@@ -114,6 +116,8 @@ Read-only tools (annotated `readOnlyHint`):
 | `agentloop_handoff` | copyable agent handoff prompt for a ticket |
 | `agentloop_convergence` | patterns whose tickets span multiple sources |
 | `agentloop_guard_gaps` | resolved tickets missing a regression guard |
+| `agentloop_search_knowledge` | search how prior resolved tickets were fixed |
+| `agentloop_knowledge_gaps` | resolved tickets lacking reusable knowledge |
 
 Write tools (only registered with `--write`):
 

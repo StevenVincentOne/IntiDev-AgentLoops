@@ -407,6 +407,53 @@ export function createMcpServer(
     },
   );
 
+  server.registerTool(
+    "agentloop_search_knowledge",
+    {
+      title: "Search resolution knowledge",
+      description:
+        "Read-only search over resolved-ticket fix knowledge (how prior tickets were resolved), by family/kind/source/tag/free-text query.",
+      inputSchema: {
+        family: z.string().optional(),
+        kind: z.string().optional(),
+        source: z.string().optional(),
+        tag: z.string().optional(),
+        query: z.string().optional(),
+        limit: z.number().int().nonnegative().optional(),
+      },
+      annotations: readOnly,
+    },
+    async (args) => {
+      try {
+        return ok(await store.searchKnowledge(args));
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "agentloop_knowledge_gaps",
+    {
+      title: "Knowledge-gap report",
+      description:
+        "Read-only report of resolved tickets whose reusable knowledge is incomplete (missing resolution or verification).",
+      inputSchema: {
+        family: z.string().optional(),
+        severity: z.string().optional(),
+        source: z.string().optional(),
+      },
+      annotations: readOnly,
+    },
+    async (args) => {
+      try {
+        return ok(await store.knowledgeGaps(args));
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
   if (options.allowWrites) {
     registerWriteTools(server, store);
   }
