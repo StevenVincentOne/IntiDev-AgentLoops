@@ -67,6 +67,14 @@ export interface ProjectConfig {
   redaction?: {
     patterns?: RedactionRule[];
   };
+  /**
+   * Optional storage selection for the CLI/MCP. Prefer the `DATABASE_URL`
+   * environment variable for the connection string (it takes precedence) so
+   * secrets stay out of committed config.
+   */
+  storage?: {
+    databaseUrl?: string;
+  };
 }
 
 /** Context passed to a redactor so host implementations can vary behavior by field/ticket. */

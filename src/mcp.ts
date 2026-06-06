@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { AgentLoopStore } from "./store";
+import { StateBackend } from "./backend";
 import { buildHandoffPrompt } from "./handoff";
 import {
   Confidence,
@@ -616,8 +617,9 @@ export async function startStdioMcpServer(opts: {
   config: ProjectConfig;
   version?: string;
   allowWrites?: boolean;
+  backend?: StateBackend;
 }): Promise<void> {
-  const store = new AgentLoopStore(opts.cwd, opts.config);
+  const store = new AgentLoopStore(opts.cwd, opts.config, { backend: opts.backend });
   await store.ensureInitialized();
   const server = createMcpServer(store, {
     version: opts.version,
@@ -625,4 +627,10 @@ export async function startStdioMcpServer(opts: {
   });
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  // Stay alive until the client closes stdin, so callers can dispose resources
+  // (e.g. a Postgres pool) cleanly on shutdown.
+  await new Promise<void>((resolve) => {
+    process.stdin.once("end", resolve);
+    process.stdin.once("close", resolve);
+  });
 }

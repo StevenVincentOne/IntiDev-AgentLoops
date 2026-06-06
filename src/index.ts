@@ -13,6 +13,8 @@ export {
   deserializeRows,
 } from "./postgres";
 export type { PgClient, RelationalRows } from "./postgres";
+export { resolveBackend, resolvePostgresUrl } from "./storage";
+export type { BackendSelection, ResolveBackendOptions } from "./storage";
 export { buildHandoffPrompt } from "./handoff";
 export { noopRedactor, createPatternRedactor, resolveRedactor } from "./redaction";
 export { deriveAliases, resolveQueuePrefix, canonicalKey, padSeq } from "./aliases";

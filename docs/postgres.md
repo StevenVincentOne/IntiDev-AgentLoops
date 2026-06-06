@@ -38,6 +38,27 @@ const store = new AgentLoopStore("", config, { backend });
 - Schema is created with `CREATE TABLE IF NOT EXISTS`, so `migrate()` is safe to
   run repeatedly.
 
+## CLI and MCP on Postgres
+
+The `agentloop` CLI and `agentloop mcp` server run on Postgres automatically when
+a connection string is configured — no flags needed:
+
+```bash
+export DATABASE_URL=postgres://user:pass@host:5432/db
+agentloop init        # creates the ticket_* schema and an empty ledger
+agentloop create --kind bug --summary "..." --source smoke
+agentloop summary
+agentloop mcp         # MCP server backed by Postgres
+```
+
+- Connection string precedence: explicit > `DATABASE_URL` env > `config.storage.databaseUrl`.
+  Prefer the env var so secrets stay out of committed config.
+- `pg` is an **optional peer dependency** — install it in your project (`npm install pg`)
+  when you want the Postgres backend. Filesystem users need nothing extra; if a
+  Postgres URL is set but `pg` is missing, the CLI prints an actionable error.
+- One-shot commands open and **close** the pool so the process exits cleanly; the
+  MCP server holds the pool open until its stdin closes.
+
 ### Public schema
 
 The canonical relational schema is exported as `TICKET_SCHEMA_SQL`:

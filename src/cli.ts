@@ -3,11 +3,13 @@ import { loadConfig, writeDefaultConfig } from "./config";
 import {
   Confidence,
   PatternStatus,
+  ProjectConfig,
   TicketKind,
   TicketStatus,
 } from "./types";
 import { AgentLoopStore, normalizeTicketInput } from "./store";
 import { buildHandoffPrompt } from "./handoff";
+import { BackendSelection, resolveBackend } from "./storage";
 
 type ArgMap = Record<string, string | boolean>;
 
@@ -103,21 +105,49 @@ function printHelp() {
   printLine("  related <id> [--min-score N] [--limit N]  prior-art: tickets related to <id>");
   printLine("  config                          print effective config");
   printLine("  mcp [--write]                   run the MCP server over stdio (read-only unless --write)");
+  printLine("");
+  printLine("Storage: set DATABASE_URL to run on Postgres; otherwise .agentloops/state.json is used.");
 }
 
-async function ensureConfig() {
+interface OpenStore {
+  cwd: string;
+  config: ProjectConfig;
+  store: AgentLoopStore;
+  kind: BackendSelection["kind"];
+}
+
+let openedStore: OpenStore | null = null;
+let openedSelection: BackendSelection | null = null;
+
+// Opens (once) the store over the resolved backend — Postgres when DATABASE_URL
+// or config selects it, otherwise the filesystem. Cached so a single process
+// uses one backend (and one Postgres pool).
+async function ensureConfig(): Promise<OpenStore> {
+  if (openedStore) return openedStore;
   const cwd = process.cwd();
   const config = await loadConfig(cwd);
-  const store = new AgentLoopStore(cwd, config);
-  return { cwd, config, store };
+  openedSelection = await resolveBackend({ cwd, config });
+  const store = new AgentLoopStore(cwd, config, { backend: openedSelection.backend });
+  openedStore = { cwd, config, store, kind: openedSelection.kind };
+  return openedStore;
+}
+
+// Release storage resources (closes the Postgres pool so the process can exit).
+async function disposeStorage() {
+  if (openedSelection) {
+    await openedSelection.dispose();
+    openedSelection = null;
+    openedStore = null;
+  }
 }
 
 async function cmdInit(argv: string[], options: ArgMap) {
-  const { config } = await ensureConfig();
+  await writeDefaultConfig(process.cwd());
+  const { config, store, kind } = await ensureConfig();
   const project = typeof options.project === "string" ? options.project : config.projectName;
-  const cfg = await writeDefaultConfig(process.cwd());
-  const created = await new AgentLoopStore(process.cwd(), cfg).ensureInitialized(project);
-  printLine(`Initialized ${created.project} at .agentloops/state.json`);
+  const created = await store.ensureInitialized(project);
+  const where = kind === "postgres" ? "Postgres" : ".agentloops/state.json";
+  printLine(`Initialized ${created.project} (${where})`);
 }
 
 async function cmdCreate(argv: string[], options: ArgMap) {
@@ -373,7 +403,7 @@ async function cmdConfig() {
 }
 
 async function cmdMcp(options: ArgMap) {
-  const { cwd, config } = await ensureConfig();
+  const { cwd, config, kind } = await ensureConfig();
   // Writes are opt-in: read-only unless --write (alias --allow-writes) is set.
   const allowWrites = options.write === true || options["allow-writes"] === true;
   // Lazy-load so the MCP SDK is only required when this command runs, and so
@@ -381,9 +411,9 @@ async function cmdMcp(options: ArgMap) {
   const { startStdioMcpServer } = await import("./mcp.js");
   // stdout is reserved for the JSON-RPC stream; status goes to stderr.
   process.stderr.write(
-    `agentloop MCP server ready on stdio (${allowWrites ? "read-write" : "read-only"})\n`,
+    `agentloop MCP server ready on stdio (${allowWrites ? "read-write" : "read-only"}, ${kind})\n`,
   );
-  await startStdioMcpServer({ cwd, config, allowWrites });
+  await startStdioMcpServer({ cwd, config, allowWrites, backend: openedSelection?.backend });
 }
 
 async function main() {
@@ -393,7 +423,8 @@ async function main() {
   if (!COMMANDS.includes(command)) {
     throw new Error(`Unknown command: ${command}`);
   }
-  switch (command) {
+  try {
+    switch (command) {
     case "help":
       printHelp();
       break;
@@ -459,6 +490,9 @@ async function main() {
       break;
     default:
       printHelp();
+    }
+  } finally {
+    await disposeStorage();
   }
 }
 
