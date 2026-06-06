@@ -531,6 +531,13 @@ async function main() {
   }
 }
 
+// Exit quietly when output is piped to a reader that closed early
+// (e.g. `agentloop list | head`), instead of crashing with EPIPE.
+process.stdout.on("error", (error: NodeJS.ErrnoException) => {
+  if (error.code === "EPIPE") process.exit(0);
+  throw error;
+});
+
 main().catch((error) => {
   const message = error instanceof Error ? error.message : String(error);
   printLine(`Error: ${message}`);
