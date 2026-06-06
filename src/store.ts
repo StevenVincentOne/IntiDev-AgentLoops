@@ -13,7 +13,8 @@ import {
   Ticket,
   TicketStatus,
 } from "./types";
-import { requiredFields, aliasForKind } from "./config";
+import { requiredFields } from "./config";
+import { deriveAliases } from "./aliases";
 
 type StateEnvelope = LoopState;
 
@@ -82,7 +83,7 @@ export class AgentLoopStore {
     const defaultKindConfig = this.config.ticketKinds.find((entry) => entry.kind === kind);
     const defaults = defaultKindConfig?.defaultSeverity ?? "medium";
     const c = this.nowState;
-    const aliases = aliasForKind(this.config, kind).map((alias) => `${alias}-${String(state.nextTicketSeq).padStart(SEQ_PAD, "0")}`);
+    const aliases = deriveAliases({ kind, source }, state.nextTicketSeq, this.config);
     const ticket: Ticket = {
       id,
       family,

@@ -2,6 +2,7 @@ export { AgentLoopStore } from "./store";
 export * from "./types";
 export * from "./config";
 export { buildHandoffPrompt } from "./handoff";
+export { deriveAliases, resolveQueuePrefix, canonicalKey, padSeq } from "./aliases";
 export {
   createMcpServer,
   startStdioMcpServer,

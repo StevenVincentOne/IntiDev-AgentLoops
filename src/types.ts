@@ -20,9 +20,25 @@ export type NoteType = "hypothesis" | "related_history" | "prior_fix" | "triage"
 
 export interface KindConfig {
   kind: TicketKind;
-  aliases: string[];
   defaultSeverity: Severity;
   requiredFields?: string[];
+}
+
+/**
+ * A queue routes tickets to a single user-facing alias prefix. Queues are
+ * evaluated in order (first match wins); a `source` match takes the precedence
+ * of the queue it belongs to, so e.g. a `user_report`-sourced bug routes to the
+ * USER queue rather than ISSUE.
+ */
+export interface QueueConfig {
+  /** Alias prefix, e.g. "USER", "DEV", "ISSUE". */
+  prefix: string;
+  /** Ticket kinds routed to this queue. */
+  kinds?: TicketKind[];
+  /** Sources routed to this queue, overriding kind routing. */
+  sources?: string[];
+  /** Fallback queue when nothing else matches. Exactly one queue should set this. */
+  default?: boolean;
 }
 
 export interface ProjectConfig {
@@ -30,6 +46,7 @@ export interface ProjectConfig {
   description: string;
   defaultKind: TicketKind;
   ticketKinds: KindConfig[];
+  queues: QueueConfig[];
   sources: string[];
   patterns: {
     autoCreateByFamily: boolean;

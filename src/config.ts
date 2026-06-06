@@ -7,13 +7,18 @@ export const DEFAULT_CONFIG: ProjectConfig = {
   description: "Feedback Loops for Agentic Workflows",
   defaultKind: "bug",
   ticketKinds: [
-    { kind: "bug", aliases: ["ISSUE"], defaultSeverity: "high", requiredFields: ["summary"] },
-    { kind: "feature", aliases: ["DEV"], defaultSeverity: "medium", requiredFields: ["summary"] },
-    { kind: "user_feedback", aliases: ["USER"], defaultSeverity: "high", requiredFields: ["summary"] },
-    { kind: "investigation", aliases: ["INVEST"], defaultSeverity: "medium", requiredFields: ["summary"] },
-    { kind: "incident", aliases: ["INC"], defaultSeverity: "critical", requiredFields: ["summary"] },
-    { kind: "tech_debt", aliases: ["DEBT"], defaultSeverity: "medium", requiredFields: ["summary"] },
-    { kind: "task", aliases: ["TASK"], defaultSeverity: "medium", requiredFields: ["summary"] },
+    { kind: "bug", defaultSeverity: "high", requiredFields: ["summary"] },
+    { kind: "feature", defaultSeverity: "medium", requiredFields: ["summary"] },
+    { kind: "user_feedback", defaultSeverity: "high", requiredFields: ["summary"] },
+    { kind: "investigation", defaultSeverity: "medium", requiredFields: ["summary"] },
+    { kind: "incident", defaultSeverity: "critical", requiredFields: ["summary"] },
+    { kind: "tech_debt", defaultSeverity: "medium", requiredFields: ["summary"] },
+    { kind: "task", defaultSeverity: "medium", requiredFields: ["summary"] },
+  ],
+  queues: [
+    { prefix: "USER", kinds: ["user_feedback"], sources: ["user_report"] },
+    { prefix: "DEV", kinds: ["feature", "task", "investigation", "tech_debt"] },
+    { prefix: "ISSUE", kinds: ["bug", "incident"], default: true },
   ],
   sources: ["user_report", "manual_admin", "agent", "smoke", "ci", "ingestion", "unknown"],
   patterns: {
@@ -45,20 +50,6 @@ export async function writeDefaultConfig(cwd: string): Promise<ProjectConfig> {
   return { ...DEFAULT_CONFIG };
 }
 
-export function canonicalKindFromAlias(config: ProjectConfig, token: string): TicketKind | null {
-  const clean = token.toUpperCase();
-  for (const kind of config.ticketKinds) {
-    if (kind.aliases.map((a) => a.toUpperCase()).includes(clean)) {
-      return kind.kind;
-    }
-  }
-  return null;
-}
-
-export function aliasForKind(config: ProjectConfig, kind: TicketKind): string[] {
-  return config.ticketKinds.find((entry) => entry.kind === kind)?.aliases ?? [kind.toUpperCase()];
-}
-
 export function requiredFields(config: ProjectConfig, kind: TicketKind): string[] {
   const k = config.ticketKinds.find((entry) => entry.kind === kind);
   return k?.requiredFields ?? [];
@@ -74,14 +65,14 @@ export function ensureKind(config: ProjectConfig, kind: string | undefined): Tic
 }
 
 export function mergeConfig(partial: Partial<ProjectConfig>): ProjectConfig {
-  const mergedKinds: KindConfig[] = (partial.ticketKinds ?? DEFAULT_CONFIG.ticketKinds).map((kind) => ({
-    ...({ kind: kind.kind, aliases: ["UNKNOWN"], defaultSeverity: "medium" } as KindConfig),
-    ...kind,
-  }));
+  const mergedKinds: KindConfig[] = (partial.ticketKinds ?? DEFAULT_CONFIG.ticketKinds).map(
+    (kind) => ({ ...kind, defaultSeverity: kind.defaultSeverity ?? "medium" }),
+  );
   return {
     ...DEFAULT_CONFIG,
     ...partial,
     ticketKinds: mergedKinds,
+    queues: partial.queues ?? DEFAULT_CONFIG.queues,
     patterns: {
       ...DEFAULT_CONFIG.patterns,
       ...(partial.patterns ?? {}),
