@@ -92,6 +92,8 @@ state fixture; run it with `npm test`.
 - `agentloop knowledge` search how prior resolved tickets were fixed
 - `agentloop knowledge-gaps` report resolved tickets lacking reusable knowledge
 - `agentloop related <id>` find prior-art tickets related to one ticket
+- `agentloop dashboard` write a standalone HTML dashboard
+- `agentloop serve` serve the dashboard over HTTP
 - `agentloop config` print resolved configuration
 - `agentloop mcp` run the read-only MCP server over stdio
 
@@ -151,6 +153,21 @@ or directly in a client config:
   }
 }
 ```
+
+## Dashboard
+
+A zero-dependency reference UI renders the ledger as a single self-contained HTML
+page — queues (Issues / User / Development), patterns, source convergence, and
+guard gaps — with no build step or frontend framework.
+
+```bash
+agentloop dashboard --out dashboard.html   # write a static snapshot, open in a browser
+agentloop serve --port 4319                # live dashboard + read-only JSON at /api/*
+```
+
+Both work over either storage backend. All ticket content is HTML-escaped. For a
+richer or embeddable UI, the `renderDashboard(data)` and `createDashboardServer(store)`
+exports can be built upon.
 
 ## Data model
 

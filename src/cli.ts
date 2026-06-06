@@ -7,8 +7,11 @@ import {
   TicketKind,
   TicketStatus,
 } from "./types";
+import { promises as fs } from "node:fs";
 import { AgentLoopStore, normalizeTicketInput } from "./store";
 import { buildHandoffPrompt } from "./handoff";
+import { gatherDashboardData, renderDashboard } from "./dashboard";
+import { createDashboardServer } from "./serve";
 import { BackendSelection, resolveBackend } from "./storage";
 
 type ArgMap = Record<string, string | boolean>;
@@ -32,6 +35,8 @@ const COMMANDS = [
   "knowledge",
   "knowledge-gaps",
   "related",
+  "dashboard",
+  "serve",
   "config",
   "mcp",
   "help",
@@ -103,6 +108,8 @@ function printHelp() {
   printLine("  knowledge [--family ..] [--kind ..] [--query ..]  search resolved-ticket fix knowledge");
   printLine("  knowledge-gaps [--family ..] [--severity ..] [--source ..]  resolved tickets lacking reusable knowledge");
   printLine("  related <id> [--min-score N] [--limit N]  prior-art: tickets related to <id>");
+  printLine("  dashboard [--out file.html] [--stdout]  write a standalone HTML dashboard");
+  printLine("  serve [--port N]                serve the dashboard over HTTP (default 4319)");
   printLine("  config                          print effective config");
   printLine("  mcp [--write]                   run the MCP server over stdio (read-only unless --write)");
   printLine("");
@@ -397,6 +404,28 @@ async function cmdRelated(argv: string[], options: ArgMap) {
   printJson(await store.related(id, { minScore, limit }));
 }
 
+async function cmdDashboard(options: ArgMap) {
+  const { store } = await ensureConfig();
+  const html = renderDashboard(await gatherDashboardData(store));
+  if (options.stdout === true) {
+    process.stdout.write(html);
+    return;
+  }
+  const out = typeof options.out === "string" ? options.out : "agentloop-dashboard.html";
+  await fs.writeFile(out, html, "utf-8");
+  printLine(`Wrote dashboard to ${out}`);
+}
+
+async function cmdServe(options: ArgMap) {
+  const { store, kind } = await ensureConfig();
+  const port = typeof options.port === "string" ? Number(options.port) : 4319;
+  const server = createDashboardServer(store);
+  await new Promise<void>((resolve) => server.listen(port, resolve));
+  process.stderr.write(`agentloop dashboard on http://localhost:${port} (${kind})\n`);
+  // Run until the process is stopped.
+  await new Promise<void>(() => {});
+}
+
 async function cmdConfig() {
   const { config } = await ensureConfig();
   printJson(config);
@@ -481,6 +510,12 @@ async function main() {
       break;
     case "related":
       await cmdRelated(args, options);
+      break;
+    case "dashboard":
+      await cmdDashboard(options);
+      break;
+    case "serve":
+      await cmdServe(options);
       break;
     case "config":
       await cmdConfig();

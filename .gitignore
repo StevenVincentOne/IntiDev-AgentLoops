@@ -12,6 +12,7 @@ tmp/
 # created by running the CLI/demo here (the tracked example is agentloop.config.json.example).
 .agentloops/
 agentloop.config.json
+agentloop-dashboard.html
 
 # local env
 .env
