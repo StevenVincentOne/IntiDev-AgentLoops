@@ -1,6 +1,3 @@
-import { promises as fs } from "fs";
-import { existsSync } from "fs";
-import { join } from "path";
 import {
   CreateTicketInput,
   GuardStatus,
@@ -17,6 +14,7 @@ import {
 } from "./types";
 import { requiredFields } from "./config";
 import { resolveRedactor } from "./redaction";
+import { StateBackend, FilesystemStateBackend } from "./backend";
 import { deriveAliases } from "./aliases";
 import {
   sourceConvergenceReport,
@@ -36,7 +34,6 @@ import { relatedTickets, PriorArtOptions, PriorArtReport } from "./prior-art";
 
 type StateEnvelope = LoopState;
 
-const STATE_FILE_NAME = "state.json";
 const SEQ_PAD = 6;
 
 function ticketId(seq: number) {
@@ -52,16 +49,16 @@ function nowIso() {
 }
 
 export class AgentLoopStore {
-  private statePath: string;
   private state: StateEnvelope | null = null;
+  private readonly backend: StateBackend;
   private readonly redactor: TicketRedactor;
 
   constructor(
-    private readonly cwd: string,
+    cwd: string,
     private readonly config: ProjectConfig,
-    options: { redactor?: TicketRedactor } = {},
+    options: { redactor?: TicketRedactor; backend?: StateBackend } = {},
   ) {
-    this.statePath = join(cwd, ".agentloops", STATE_FILE_NAME);
+    this.backend = options.backend ?? new FilesystemStateBackend(cwd);
     this.redactor = resolveRedactor(config, options.redactor);
   }
 
@@ -73,9 +70,8 @@ export class AgentLoopStore {
     if (this.state) {
       return this.state;
     }
-    await fs.mkdir(join(this.cwd, ".agentloops"), { recursive: true });
-    const exists = existsSync(this.statePath);
-    if (!exists) {
+    const loaded = await this.backend.load();
+    if (!loaded) {
       this.state = {
         version: 1,
         project,
@@ -89,8 +85,7 @@ export class AgentLoopStore {
       await this.persist();
       return this.state;
     }
-    const text = await fs.readFile(this.statePath, "utf-8");
-    this.state = JSON.parse(text) as StateEnvelope;
+    this.state = loaded;
     if (!this.state.project) {
       this.state.project = project;
     }
@@ -380,7 +375,7 @@ export class AgentLoopStore {
       return;
     }
     this.state.updatedAt = nowIso();
-    await fs.writeFile(this.statePath, JSON.stringify(this.state, null, 2), "utf-8");
+    await this.backend.save(this.state);
   }
 
   private get nowState() {

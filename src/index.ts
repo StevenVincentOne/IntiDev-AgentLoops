@@ -1,6 +1,18 @@
 export { AgentLoopStore } from "./store";
 export * from "./types";
 export * from "./config";
+export {
+  FilesystemStateBackend,
+  MemoryStateBackend,
+} from "./backend";
+export type { StateBackend } from "./backend";
+export {
+  PostgresStateBackend,
+  TICKET_SCHEMA_SQL,
+  serializeState,
+  deserializeRows,
+} from "./postgres";
+export type { PgClient, RelationalRows } from "./postgres";
 export { buildHandoffPrompt } from "./handoff";
 export { noopRedactor, createPatternRedactor, resolveRedactor } from "./redaction";
 export { deriveAliases, resolveQueuePrefix, canonicalKey, padSeq } from "./aliases";

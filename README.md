@@ -154,7 +154,11 @@ or directly in a client config:
 
 ## Data model
 
-State is stored in your working directory at `.agentloops/state.json`.
+State is stored in your working directory at `.agentloops/state.json` by default.
+The store persists through a pluggable `StateBackend`, so the same ledger can run
+over the filesystem, an in-memory store, or **Postgres** (a relational `ticket_*`
+schema) — see [docs/postgres.md](docs/postgres.md).
+
 For local project settings, copy and customize:
 
 ```bash
