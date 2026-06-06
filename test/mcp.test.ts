@@ -13,6 +13,11 @@ import {
   listTool,
   showTool,
   summaryTool,
+  createTicketTool,
+  noteTool,
+  workflowTool,
+  resolveTool,
+  guardTool,
   MCP_SCHEMA_VERSION,
 } from "../src/mcp";
 import { seedConvergenceDemo } from "../scripts/demo-seed";
@@ -30,6 +35,17 @@ async function withSeededStore<T>(run: (store: AgentLoopStore) => Promise<T>): P
 }
 
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+
+async function connectedClient(server: ReturnType<typeof createMcpServer>): Promise<Client> {
+  const client = new Client({ name: "agentloops-test", version: "0.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  return client;
+}
+
+function textOf(result: unknown): string {
+  return (result as { content: Array<{ text: string }> }).content[0].text;
+}
 
 test("summaryTool reports converged loop counts", async () => {
   await withSeededStore(async (store) => {
@@ -118,6 +134,109 @@ test("MCP server exposes the four read-only tools over the protocol", async () =
     } finally {
       await client.close();
       await server.close();
+    }
+  });
+});
+
+test("createTicketTool appends a ticket with agent source and config defaults", async () => {
+  await withSeededStore(async (store) => {
+    const result = await createTicketTool(store, {
+      summary: "Streaming export needs backpressure",
+      kind: "feature",
+      family: "export_pipeline",
+    });
+    assert.equal(result.action, "created");
+    assert.equal(result.ticket.id, "ISSUE-000004");
+    assert.deepEqual(result.ticket.aliases, ["DEV-000004"]);
+    assert.equal(result.ticket.source, "agent"); // MCP default source
+    assert.equal(result.ticket.patternId, "PATTERN-000001"); // joins the family pattern
+
+    await assert.rejects(
+      () => createTicketTool(store, { summary: "x", kind: "bogus" }),
+      /Unknown kind/,
+    );
+  });
+});
+
+test("noteTool / workflowTool / guardTool mutate a ticket", async () => {
+  await withSeededStore(async (store) => {
+    const noted = await noteTool(store, { id: "USER-000002", body: "user pinged again" });
+    assert.equal(noted.action, "noted");
+    assert.equal(noted.ticket.notes.length, 1);
+    assert.equal(noted.ticket.notes[0].author, "agent"); // default actor
+    assert.equal(noted.ticket.notes[0].type, "triage"); // default note type
+
+    const begun = await workflowTool(store, { id: "DEV-000003", status: "active" });
+    assert.equal(begun.ticket.status, "active");
+    assert.ok(begun.ticket.startedAt);
+
+    const reopened = await workflowTool(store, { id: "DEV-000003", status: "reopened" });
+    assert.equal(reopened.ticket.status, "reopened");
+
+    const guarded = await guardTool(store, {
+      id: "ISSUE-000001",
+      guardStatus: "guard_added",
+      guardSummary: "added smoke guard",
+    });
+    assert.equal(guarded.ticket.guardStatus, "guard_added");
+  });
+});
+
+test("resolveTool records summary, verification, and guard", async () => {
+  await withSeededStore(async (store) => {
+    const resolved = await resolveTool(store, {
+      id: "ISSUE-000001",
+      summary: "streamed exporter shipped",
+      verification: "smoke green",
+      guardStatus: "guard_existing",
+    });
+    assert.equal(resolved.action, "resolved");
+    assert.equal(resolved.ticket.status, "resolved");
+    assert.equal(resolved.ticket.resolutionSummary, "streamed exporter shipped");
+    assert.equal(resolved.ticket.verification, "smoke green");
+    assert.equal(resolved.ticket.guardStatus, "guard_existing");
+    assert.ok(resolved.ticket.resolvedAt);
+  });
+});
+
+test("write tools are gated: absent by default, present and usable with allowWrites", async () => {
+  await withSeededStore(async (store) => {
+    // Default server: read-only surface, no write tools.
+    const ro = createMcpServer(store);
+    const roClient = await connectedClient(ro);
+    try {
+      const names = (await roClient.listTools()).tools.map((t) => t.name);
+      assert.equal(names.length, 4);
+      assert.ok(!names.some((n) => n.startsWith("agentloop_create")));
+    } finally {
+      await roClient.close();
+      await ro.close();
+    }
+
+    // Write-enabled server: 9 tools, and a create round-trips through show.
+    const rw = createMcpServer(store, { allowWrites: true });
+    const rwClient = await connectedClient(rw);
+    try {
+      const tools = (await rwClient.listTools()).tools;
+      assert.equal(tools.length, 9);
+      const createTool = tools.find((t) => t.name === "agentloop_create");
+      assert.equal(createTool?.annotations?.readOnlyHint, false);
+
+      const created = await rwClient.callTool({
+        name: "agentloop_create",
+        arguments: { summary: "Reported via MCP", kind: "bug", family: "auth_session" },
+      });
+      const createdJson = JSON.parse(textOf(created));
+      assert.equal(createdJson.action, "created");
+
+      const shown = await rwClient.callTool({
+        name: "agentloop_show",
+        arguments: { id: createdJson.ticket.id },
+      });
+      assert.equal(JSON.parse(textOf(shown)).ticket.summary, "Reported via MCP");
+    } finally {
+      await rwClient.close();
+      await rw.close();
     }
   });
 });

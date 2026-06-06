@@ -1,26 +1,28 @@
 # MCP server
 
 AgentLoops exposes a [Model Context Protocol](https://modelcontextprotocol.io)
-server so coding agents can read the ticket ledger directly. The current phase is
-**read-only**: it never mutates state. Writes (create / note / workflow / resolve
-/ guard) remain on the CLI until guarded MCP write tools are added.
+server so coding agents can use the ticket ledger directly. Writes are **opt-in**:
+the server is read-only by default and only registers the write tools (create /
+note / workflow / resolve / guard) when started with `--write`.
 
 ## Running
 
 ```bash
-agentloop mcp
+agentloop mcp            # read-only
+agentloop mcp --write    # also expose the write tools (alias: --allow-writes)
 ```
 
 - Communicates over **stdio** using JSON-RPC. `stdout` carries only the protocol
-  stream; human-readable status is written to `stderr`.
-- Reads `.agentloops/state.json` from the **current working directory**, so start
-  it from the project root where you ran `agentloop init`.
+  stream; human-readable status (including the read-only/read-write mode) is
+  written to `stderr`.
+- Reads/writes `.agentloops/state.json` from the **current working directory**, so
+  start it from the project root where you ran `agentloop init`.
 - Implemented over the same `AgentLoopStore` as the CLI, so the CLI and MCP
   surfaces always agree.
 
-## Tools
+## Read-only tools
 
-All tools are annotated with `readOnlyHint: true`.
+Always available; annotated `readOnlyHint: true`.
 
 | Tool | Input | Returns |
 | --- | --- | --- |
@@ -29,15 +31,32 @@ All tools are annotated with `readOnlyHint: true`.
 | `agentloop_show` | `id` | `{ ..., kind: "ticket", ticket }` or `{ ..., kind: "pattern", pattern }` |
 | `agentloop_handoff` | `id` | `{ ..., ticketId, aliases, prompt }` |
 
+## Write tools
+
+Only registered with `--write`. Each returns `{ schemaVersion, generatedAt,
+action, ticket }`, where `ticket` carries the canonical `id` and queue `aliases`.
+
+| Tool | Input | Notes |
+| --- | --- | --- |
+| `agentloop_create` | `summary` (required), `title?`, `family?`, `kind?`, `source?`, `severity?`, `confidence?`, `tags?`, `handoff?` | `kind`/`family` default from config; `source` defaults to `agent` |
+| `agentloop_note` | `id`, `body` (required), `type?`, `author?` | `type` defaults to `triage`, `author` to `agent` |
+| `agentloop_workflow` | `id`, `status` (`active` \| `reopened`), `reason?` | resolve via `agentloop_resolve`, not here |
+| `agentloop_resolve` | `id`, `summary` (required), `verification?`, `guardStatus?`, `guardSummary?` | |
+| `agentloop_guard` | `id`, `guardStatus`, `guardSummary?` | |
+
 Notes:
 
 - `id` accepts the canonical `ISSUE-NNNNNN` id, any queue alias (`DEV-...`,
   `USER-...`, etc.), or a `PATTERN-NNNNNN` id for `agentloop_show`.
-- `status` accepts `triaged | active | resolved | reopened | deferred | all`.
+- `status` (for `agentloop_list`) accepts `triaged | active | resolved | reopened | deferred | all`.
+- `kind`, `severity`, `confidence`, `guardStatus`, and note `type` are validated
+  against the configured/known values; invalid inputs return a readable error.
 - Every envelope includes `schemaVersion` (currently `1`) and `generatedAt`.
   Fields are added, not removed, within a schema version.
 - Unknown ids return a tool error (`isError: true`) with a readable message
   rather than failing the protocol call.
+- Writes do not yet redact user content or secrets — that lands with the
+  redaction adapter; keep sensitive payloads out of tickets for now.
 
 ## Client configuration
 

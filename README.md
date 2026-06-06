@@ -94,15 +94,15 @@ All commands support `--json` for machine-readable output where relevant.
 ## MCP server (agent integration)
 
 AgentLoops ships an [MCP](https://modelcontextprotocol.io) server so coding
-agents (Claude Code, Codex, and other MCP clients) can read the ledger directly.
-This first phase exposes **read-only** tools; create/resolve/guard writes stay on
-the CLI until write tools are added behind explicit policy.
+agents (Claude Code, Codex, and other MCP clients) can use the ledger directly.
+Writes are **opt-in**: the server is read-only unless you pass `--write`.
 
 ```bash
-agentloop mcp            # speaks JSON-RPC over stdio; status is logged to stderr
+agentloop mcp            # read-only; speaks JSON-RPC over stdio, status to stderr
+agentloop mcp --write    # also expose the guarded write tools
 ```
 
-Tools (each annotated `readOnlyHint`):
+Read-only tools (annotated `readOnlyHint`):
 
 | Tool | Purpose |
 | --- | --- |
@@ -111,9 +111,19 @@ Tools (each annotated `readOnlyHint`):
 | `agentloop_show` | one ticket (by `ISSUE-`/alias) or a `PATTERN-` id |
 | `agentloop_handoff` | copyable agent handoff prompt for a ticket |
 
+Write tools (only registered with `--write`):
+
+| Tool | Purpose |
+| --- | --- |
+| `agentloop_create` | create a ticket (`summary` required; `source` defaults to `agent`) |
+| `agentloop_note` | append a non-resolution note |
+| `agentloop_workflow` | transition a ticket (`active` / `reopened`) |
+| `agentloop_resolve` | resolve with a summary, optional verification + guard |
+| `agentloop_guard` | record a regression-guard decision |
+
 Each result is a JSON envelope with `schemaVersion` and `generatedAt`. The server
-reads state from the `.agentloops/state.json` in its working directory, so run it
-from your project root (or where you ran `agentloop init`).
+reads/writes state from the `.agentloops/state.json` in its working directory, so
+run it from your project root (or where you ran `agentloop init`).
 
 Register it with an MCP client, for example Claude Code:
 

@@ -229,6 +229,10 @@ export class AgentLoopStore {
     return state.patterns.find((entry) => entry.id === id);
   }
 
+  getConfig(): ProjectConfig {
+    return this.config;
+  }
+
   private async transitionTicket(rawId: string, status?: TicketStatus): Promise<Ticket> {
     const state = await this.ensureInitialized();
     const targetId = normalizeTicketInput(rawId, state.tickets);

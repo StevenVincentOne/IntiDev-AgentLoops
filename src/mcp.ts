@@ -3,7 +3,17 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { AgentLoopStore } from "./store";
 import { buildHandoffPrompt } from "./handoff";
-import { Pattern, ProjectConfig, Ticket, TicketStatus } from "./types";
+import {
+  Confidence,
+  GuardStatus,
+  NoteType,
+  Pattern,
+  ProjectConfig,
+  Severity,
+  Ticket,
+  TicketKind,
+  TicketStatus,
+} from "./types";
 
 /**
  * Schema version for the MCP tool envelopes. Bump only on breaking changes;
@@ -119,6 +129,132 @@ export async function handoffTool(
   };
 }
 
+/**
+ * Write tools (opt-in via `allowWrites`). These mutate the ledger and are
+ * disabled by default; an agent gets the read-only surface unless the operator
+ * explicitly enables writes.
+ */
+export type WriteAction = "created" | "noted" | "workflow" | "resolved" | "guard";
+
+export interface WriteResult extends Envelope {
+  action: WriteAction;
+  ticket: Ticket;
+}
+
+export const SEVERITIES = ["low", "medium", "high", "critical"] as const satisfies readonly Severity[];
+export const CONFIDENCES = ["low", "medium", "high"] as const satisfies readonly Confidence[];
+export const NOTE_TYPES = [
+  "hypothesis",
+  "related_history",
+  "prior_fix",
+  "triage",
+  "investigation",
+] as const satisfies readonly NoteType[];
+export const GUARD_STATUSES = [
+  "guard_added",
+  "guard_existing",
+  "guard_waived",
+  "guard_deferred",
+  "none",
+] as const satisfies readonly GuardStatus[];
+/** Workflow transitions exposed over MCP. `resolved` has its own tool. */
+export const WORKFLOW_STATUSES = ["active", "reopened"] as const satisfies readonly TicketStatus[];
+
+/** Source recorded for tickets/notes created by an MCP agent client. */
+export const MCP_ACTOR_SOURCE = "agent";
+
+export async function createTicketTool(
+  store: AgentLoopStore,
+  args: {
+    summary: string;
+    title?: string;
+    family?: string;
+    kind?: string;
+    source?: string;
+    severity?: Severity;
+    confidence?: Confidence;
+    tags?: string[];
+    handoff?: string;
+  },
+): Promise<WriteResult> {
+  const config = store.getConfig();
+  const kind = (args.kind ?? config.defaultKind) as TicketKind;
+  if (!config.ticketKinds.some((entry) => entry.kind === kind)) {
+    const valid = config.ticketKinds.map((entry) => entry.kind).join(", ");
+    throw new Error(`Unknown kind: ${kind} (valid: ${valid})`);
+  }
+  const ticket = await store.createTicket({
+    title: args.title ?? "",
+    summary: args.summary,
+    family: args.family ?? config.patterns.defaultFamily,
+    kind,
+    source: args.source ?? MCP_ACTOR_SOURCE,
+    severity: args.severity,
+    confidence: args.confidence ?? "medium",
+    tags: args.tags ?? [],
+    handoffText: args.handoff,
+  });
+  return { ...envelope(), action: "created", ticket };
+}
+
+export async function noteTool(
+  store: AgentLoopStore,
+  args: { id: string; body: string; type?: NoteType; author?: string },
+): Promise<WriteResult> {
+  const ticket = await store.addTicketNote(
+    args.id,
+    args.type ?? "triage",
+    args.body,
+    args.author ?? MCP_ACTOR_SOURCE,
+  );
+  return { ...envelope(), action: "noted", ticket };
+}
+
+export async function workflowTool(
+  store: AgentLoopStore,
+  args: { id: string; status: (typeof WORKFLOW_STATUSES)[number]; reason?: string },
+): Promise<WriteResult> {
+  let ticket: Ticket;
+  if (args.status === "active") {
+    ticket = await store.beginTicket(args.id);
+  } else if (args.status === "reopened") {
+    ticket = await store.reopenTicket(args.id, args.reason ?? "recurrence detected");
+  } else {
+    throw new Error(
+      `Unsupported workflow status: ${args.status} (use active|reopened; resolve via agentloop_resolve)`,
+    );
+  }
+  return { ...envelope(), action: "workflow", ticket };
+}
+
+export async function resolveTool(
+  store: AgentLoopStore,
+  args: {
+    id: string;
+    summary: string;
+    verification?: string;
+    guardStatus?: GuardStatus;
+    guardSummary?: string;
+  },
+): Promise<WriteResult> {
+  const ticket = await store.resolveTicket({
+    id: args.id,
+    summary: args.summary,
+    verification: args.verification,
+    guardStatus: args.guardStatus ?? "none",
+    guardSummary: args.guardSummary,
+  });
+  return { ...envelope(), action: "resolved", ticket };
+}
+
+export async function guardTool(
+  store: AgentLoopStore,
+  args: { id: string; guardStatus: GuardStatus; guardSummary?: string },
+): Promise<WriteResult> {
+  const ticket = await store.setGuard(args.id, args.guardStatus, args.guardSummary);
+  return { ...envelope(), action: "guard", ticket };
+}
+
 type ToolResult = {
   content: Array<{ type: "text"; text: string }>;
   isError?: boolean;
@@ -133,12 +269,25 @@ function fail(error: unknown): ToolResult {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 
+export interface CreateMcpServerOptions {
+  version?: string;
+  /** Register the mutating write tools. Off by default (read-only surface). */
+  allowWrites?: boolean;
+}
+
 /**
- * Build an MCP server exposing the read-only AgentLoops tools over the given
- * store. Write tools are intentionally omitted in this phase.
+ * Build an MCP server over the given store. By default only the read-only tools
+ * are exposed; pass `allowWrites: true` to also register the guarded write
+ * tools (create / note / workflow / resolve / guard).
  */
-export function createMcpServer(store: AgentLoopStore, version = "0.1.0"): McpServer {
-  const server = new McpServer({ name: MCP_SERVER_NAME, version });
+export function createMcpServer(
+  store: AgentLoopStore,
+  options: CreateMcpServerOptions = {},
+): McpServer {
+  const server = new McpServer({
+    name: MCP_SERVER_NAME,
+    version: options.version ?? "0.1.0",
+  });
   const readOnly = { readOnlyHint: true } as const;
 
   server.registerTool(
@@ -214,7 +363,133 @@ export function createMcpServer(store: AgentLoopStore, version = "0.1.0"): McpSe
     },
   );
 
+  if (options.allowWrites) {
+    registerWriteTools(server, store);
+  }
+
   return server;
+}
+
+/** Register the mutating tools. Only called when writes are explicitly enabled. */
+function registerWriteTools(server: McpServer, store: AgentLoopStore): void {
+  const write = { readOnlyHint: false } as const;
+
+  server.registerTool(
+    "agentloop_create",
+    {
+      title: "Create ticket",
+      description:
+        "Create a ticket. `summary` is required; `kind`/`family`/`source` default from config (source defaults to 'agent').",
+      inputSchema: {
+        summary: z.string().min(1),
+        title: z.string().optional(),
+        family: z.string().optional(),
+        kind: z.string().optional(),
+        source: z.string().optional(),
+        severity: z.enum(SEVERITIES).optional(),
+        confidence: z.enum(CONFIDENCES).optional(),
+        tags: z.array(z.string()).optional(),
+        handoff: z.string().optional(),
+      },
+      annotations: write,
+    },
+    async (args) => {
+      try {
+        return ok(await createTicketTool(store, args));
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "agentloop_note",
+    {
+      title: "Add note",
+      description: "Append a non-resolution note to a ticket (by id or alias).",
+      inputSchema: {
+        id: z.string(),
+        body: z.string().min(1),
+        type: z.enum(NOTE_TYPES).optional(),
+        author: z.string().optional(),
+      },
+      annotations: write,
+    },
+    async (args) => {
+      try {
+        return ok(await noteTool(store, args));
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "agentloop_workflow",
+    {
+      title: "Workflow transition",
+      description:
+        "Transition a ticket: status 'active' begins work, 'reopened' records a recurrence. Resolve via agentloop_resolve.",
+      inputSchema: {
+        id: z.string(),
+        status: z.enum(WORKFLOW_STATUSES),
+        reason: z.string().optional(),
+      },
+      annotations: write,
+    },
+    async (args) => {
+      try {
+        return ok(await workflowTool(store, args));
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "agentloop_resolve",
+    {
+      title: "Resolve ticket",
+      description:
+        "Resolve a ticket with a required summary; optionally record verification and a guard decision.",
+      inputSchema: {
+        id: z.string(),
+        summary: z.string().min(1),
+        verification: z.string().optional(),
+        guardStatus: z.enum(GUARD_STATUSES).optional(),
+        guardSummary: z.string().optional(),
+      },
+      annotations: write,
+    },
+    async (args) => {
+      try {
+        return ok(await resolveTool(store, args));
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "agentloop_guard",
+    {
+      title: "Record guard decision",
+      description: "Set the regression-guard decision for a ticket (by id or alias).",
+      inputSchema: {
+        id: z.string(),
+        guardStatus: z.enum(GUARD_STATUSES),
+        guardSummary: z.string().optional(),
+      },
+      annotations: write,
+    },
+    async (args) => {
+      try {
+        return ok(await guardTool(store, args));
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
 }
 
 /**
@@ -225,10 +500,14 @@ export async function startStdioMcpServer(opts: {
   cwd: string;
   config: ProjectConfig;
   version?: string;
+  allowWrites?: boolean;
 }): Promise<void> {
   const store = new AgentLoopStore(opts.cwd, opts.config);
   await store.ensureInitialized();
-  const server = createMcpServer(store, opts.version);
+  const server = createMcpServer(store, {
+    version: opts.version,
+    allowWrites: opts.allowWrites,
+  });
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

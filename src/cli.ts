@@ -90,7 +90,7 @@ function printHelp() {
   printLine("  handoff <id>                    print agent handoff prompt");
   printLine("  summary                         print loop stats");
   printLine("  config                          print effective config");
-  printLine("  mcp [--stdio]                   run the read-only MCP server (stdio)");
+  printLine("  mcp [--write]                   run the MCP server over stdio (read-only unless --write)");
 }
 
 async function ensureConfig() {
@@ -292,14 +292,18 @@ async function cmdConfig() {
   printJson(config);
 }
 
-async function cmdMcp() {
+async function cmdMcp(options: ArgMap) {
   const { cwd, config } = await ensureConfig();
+  // Writes are opt-in: read-only unless --write (alias --allow-writes) is set.
+  const allowWrites = options.write === true || options["allow-writes"] === true;
   // Lazy-load so the MCP SDK is only required when this command runs, and so
   // its dependency never affects startup of the other CLI commands.
   const { startStdioMcpServer } = await import("./mcp.js");
   // stdout is reserved for the JSON-RPC stream; status goes to stderr.
-  process.stderr.write("agentloop MCP server ready on stdio (read-only)\n");
-  await startStdioMcpServer({ cwd, config });
+  process.stderr.write(
+    `agentloop MCP server ready on stdio (${allowWrites ? "read-write" : "read-only"})\n`,
+  );
+  await startStdioMcpServer({ cwd, config, allowWrites });
 }
 
 async function main() {
@@ -353,7 +357,7 @@ async function main() {
       await cmdConfig();
       break;
     case "mcp":
-      await cmdMcp();
+      await cmdMcp(options);
       break;
     default:
       printHelp();
