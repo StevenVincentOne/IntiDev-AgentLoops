@@ -86,6 +86,7 @@ state fixture; run it with `npm test`.
 - `agentloop handoff <id>` print a copyable agent handoff prompt
 - `agentloop patterns` list pattern groups
 - `agentloop summary` print quick health metrics
+- `agentloop convergence` report patterns whose tickets span multiple sources
 - `agentloop config` print resolved configuration
 - `agentloop mcp` run the read-only MCP server over stdio
 
@@ -110,6 +111,7 @@ Read-only tools (annotated `readOnlyHint`):
 | `agentloop_list` | list tickets, optional `status` / `kind` filters |
 | `agentloop_show` | one ticket (by `ISSUE-`/alias) or a `PATTERN-` id |
 | `agentloop_handoff` | copyable agent handoff prompt for a ticket |
+| `agentloop_convergence` | patterns whose tickets span multiple sources |
 
 Write tools (only registered with `--write`):
 

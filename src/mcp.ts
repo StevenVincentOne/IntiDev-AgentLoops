@@ -363,6 +363,28 @@ export function createMcpServer(
     },
   );
 
+  server.registerTool(
+    "agentloop_convergence",
+    {
+      title: "Source-convergence audit",
+      description:
+        "Read-only report of patterns whose tickets span multiple distinct sources (corroboration across intake channels).",
+      inputSchema: {
+        family: z.string().optional(),
+        minSources: z.number().int().positive().optional(),
+        includeAll: z.boolean().optional(),
+      },
+      annotations: readOnly,
+    },
+    async (args) => {
+      try {
+        return ok(await store.sourceConvergence(args));
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
   if (options.allowWrites) {
     registerWriteTools(server, store);
   }

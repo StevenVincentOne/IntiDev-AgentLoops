@@ -15,6 +15,11 @@ import {
 } from "./types";
 import { requiredFields } from "./config";
 import { deriveAliases } from "./aliases";
+import {
+  sourceConvergenceReport,
+  SourceConvergenceOptions,
+  SourceConvergenceReport,
+} from "./convergence";
 
 type StateEnvelope = LoopState;
 
@@ -232,6 +237,13 @@ export class AgentLoopStore {
 
   getConfig(): ProjectConfig {
     return this.config;
+  }
+
+  async sourceConvergence(
+    options: SourceConvergenceOptions = {},
+  ): Promise<SourceConvergenceReport> {
+    const state = await this.ensureInitialized();
+    return sourceConvergenceReport(state.tickets, state.patterns, options);
   }
 
   private async transitionTicket(rawId: string, status?: TicketStatus): Promise<Ticket> {

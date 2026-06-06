@@ -4,6 +4,17 @@ export * from "./config";
 export { buildHandoffPrompt } from "./handoff";
 export { deriveAliases, resolveQueuePrefix, canonicalKey, padSeq } from "./aliases";
 export {
+  sourceConvergenceReport,
+  SOURCE_CONVERGENCE_SCHEMA_VERSION,
+  DEFAULT_MIN_SOURCES,
+} from "./convergence";
+export type {
+  SourceConvergenceOptions,
+  SourceConvergenceReport,
+  ConvergencePattern,
+  ConvergenceTicketRef,
+} from "./convergence";
+export {
   createMcpServer,
   startStdioMcpServer,
   summaryTool,

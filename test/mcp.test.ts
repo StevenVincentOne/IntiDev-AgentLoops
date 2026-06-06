@@ -98,7 +98,7 @@ test("handoffTool returns a copyable prompt for a ticket alias", async () => {
   });
 });
 
-test("MCP server exposes the four read-only tools over the protocol", async () => {
+test("MCP server exposes the read-only tools over the protocol", async () => {
   await withSeededStore(async (store) => {
     const server = createMcpServer(store);
     const client = new Client({ name: "agentloops-test", version: "0.0.0" });
@@ -109,7 +109,13 @@ test("MCP server exposes the four read-only tools over the protocol", async () =
       const { tools } = await client.listTools();
       assert.deepEqual(
         tools.map((t) => t.name).sort(),
-        ["agentloop_handoff", "agentloop_list", "agentloop_show", "agentloop_summary"],
+        [
+          "agentloop_convergence",
+          "agentloop_handoff",
+          "agentloop_list",
+          "agentloop_show",
+          "agentloop_summary",
+        ],
       );
       // Every exposed tool advertises itself as read-only.
       assert.ok(tools.every((t) => t.annotations?.readOnlyHint === true));
@@ -117,6 +123,14 @@ test("MCP server exposes the four read-only tools over the protocol", async () =
       const summary = await client.callTool({ name: "agentloop_summary", arguments: {} });
       const summaryText = (summary.content as Array<{ type: string; text: string }>)[0].text;
       assert.equal(JSON.parse(summaryText).summary.totalTickets, 3);
+
+      const convergence = await client.callTool({
+        name: "agentloop_convergence",
+        arguments: {},
+      });
+      const convergenceJson = JSON.parse(textOf(convergence));
+      assert.equal(convergenceJson.summary.convergedPatterns, 1);
+      assert.equal(convergenceJson.patterns[0].sourceCount, 3);
 
       const show = await client.callTool({
         name: "agentloop_show",
@@ -206,19 +220,19 @@ test("write tools are gated: absent by default, present and usable with allowWri
     const roClient = await connectedClient(ro);
     try {
       const names = (await roClient.listTools()).tools.map((t) => t.name);
-      assert.equal(names.length, 4);
+      assert.equal(names.length, 5); // 5 read-only tools
       assert.ok(!names.some((n) => n.startsWith("agentloop_create")));
     } finally {
       await roClient.close();
       await ro.close();
     }
 
-    // Write-enabled server: 9 tools, and a create round-trips through show.
+    // Write-enabled server: 5 read + 5 write tools; a create round-trips through show.
     const rw = createMcpServer(store, { allowWrites: true });
     const rwClient = await connectedClient(rw);
     try {
       const tools = (await rwClient.listTools()).tools;
-      assert.equal(tools.length, 9);
+      assert.equal(tools.length, 10);
       const createTool = tools.find((t) => t.name === "agentloop_create");
       assert.equal(createTool?.annotations?.readOnlyHint, false);
 

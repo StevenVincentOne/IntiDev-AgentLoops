@@ -30,6 +30,7 @@ Always available; annotated `readOnlyHint: true`.
 | `agentloop_list` | `status?`, `kind?` | `{ ..., filters, count, tickets }` |
 | `agentloop_show` | `id` | `{ ..., kind: "ticket", ticket }` or `{ ..., kind: "pattern", pattern }` |
 | `agentloop_handoff` | `id` | `{ ..., ticketId, aliases, prompt }` |
+| `agentloop_convergence` | `family?`, `minSources?`, `includeAll?` | `{ ..., filters, summary, patterns }` — patterns whose tickets span ≥ `minSources` (default 2) distinct sources |
 
 ## Write tools
 
