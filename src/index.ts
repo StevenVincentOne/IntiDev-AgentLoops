@@ -14,6 +14,13 @@ export type {
   ConvergencePattern,
   ConvergenceTicketRef,
 } from "./convergence";
+export { guardGapReport, GUARD_GAP_SCHEMA_VERSION, DEFAULT_GUARD_QUEUES } from "./guards";
+export type {
+  GuardGapOptions,
+  GuardGapReport,
+  GuardGap,
+  GuardGapReason,
+} from "./guards";
 export {
   createMcpServer,
   startStdioMcpServer,

@@ -385,6 +385,28 @@ export function createMcpServer(
     },
   );
 
+  server.registerTool(
+    "agentloop_guard_gaps",
+    {
+      title: "Guard-gap report",
+      description:
+        "Read-only report of resolved tickets that lack an active regression guard (defects/user reports by default).",
+      inputSchema: {
+        family: z.string().optional(),
+        includeWaived: z.boolean().optional(),
+        allKinds: z.boolean().optional(),
+      },
+      annotations: readOnly,
+    },
+    async (args) => {
+      try {
+        return ok(await store.guardGaps(args));
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
   if (options.allowWrites) {
     registerWriteTools(server, store);
   }

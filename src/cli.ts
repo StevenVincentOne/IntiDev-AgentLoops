@@ -25,6 +25,7 @@ const COMMANDS = [
   "handoff",
   "summary",
   "convergence",
+  "guard-gaps",
   "config",
   "mcp",
   "help",
@@ -91,6 +92,7 @@ function printHelp() {
   printLine("  handoff <id>                    print agent handoff prompt");
   printLine("  summary                         print loop stats");
   printLine("  convergence [--family ..] [--min-sources N] [--all]  patterns spanning multiple sources");
+  printLine("  guard-gaps [--family ..] [--include-waived] [--all-kinds]  resolved tickets missing a guard");
   printLine("  config                          print effective config");
   printLine("  mcp [--write]                   run the MCP server over stdio (read-only unless --write)");
 }
@@ -298,6 +300,14 @@ async function cmdConvergence(options: ArgMap) {
   printJson(await store.sourceConvergence({ family, minSources, includeAll }));
 }
 
+async function cmdGuardGaps(options: ArgMap) {
+  const { store } = await ensureConfig();
+  const family = typeof options.family === "string" ? options.family : undefined;
+  const includeWaived = options["include-waived"] === true;
+  const allKinds = options["all-kinds"] === true;
+  printJson(await store.guardGaps({ family, includeWaived, allKinds }));
+}
+
 async function cmdConfig() {
   const { config } = await ensureConfig();
   printJson(config);
@@ -366,6 +376,9 @@ async function main() {
       break;
     case "convergence":
       await cmdConvergence(options);
+      break;
+    case "guard-gaps":
+      await cmdGuardGaps(options);
       break;
     case "config":
       await cmdConfig();

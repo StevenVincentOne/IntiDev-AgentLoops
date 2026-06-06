@@ -20,6 +20,7 @@ import {
   SourceConvergenceOptions,
   SourceConvergenceReport,
 } from "./convergence";
+import { guardGapReport, GuardGapOptions, GuardGapReport } from "./guards";
 
 type StateEnvelope = LoopState;
 
@@ -244,6 +245,11 @@ export class AgentLoopStore {
   ): Promise<SourceConvergenceReport> {
     const state = await this.ensureInitialized();
     return sourceConvergenceReport(state.tickets, state.patterns, options);
+  }
+
+  async guardGaps(options: GuardGapOptions = {}): Promise<GuardGapReport> {
+    const state = await this.ensureInitialized();
+    return guardGapReport(state.tickets, this.config, options);
   }
 
   private async transitionTicket(rawId: string, status?: TicketStatus): Promise<Ticket> {

@@ -31,6 +31,7 @@ Always available; annotated `readOnlyHint: true`.
 | `agentloop_show` | `id` | `{ ..., kind: "ticket", ticket }` or `{ ..., kind: "pattern", pattern }` |
 | `agentloop_handoff` | `id` | `{ ..., ticketId, aliases, prompt }` |
 | `agentloop_convergence` | `family?`, `minSources?`, `includeAll?` | `{ ..., filters, summary, patterns }` — patterns whose tickets span ≥ `minSources` (default 2) distinct sources |
+| `agentloop_guard_gaps` | `family?`, `includeWaived?`, `allKinds?` | `{ ..., filters, summary, gaps }` — resolved tickets (ISSUE/USER queues by default) lacking an active regression guard |
 
 ## Write tools
 
