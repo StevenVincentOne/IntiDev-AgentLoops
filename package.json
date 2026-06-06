@@ -12,10 +12,13 @@
   "scripts": {
     "build": "tsc",
     "cli": "tsx src/cli.ts",
+    "demo": "tsx scripts/demo-seed.ts",
+    "test": "tsx --test test/demo.test.ts",
     "start": "npm run cli --",
     "prepare": "npm run build",
     "format": "npx prettier --write \"src/**/*.ts\" \"docs/**/*.md\" \"*.md\"",
-    "lint": "npx tsc --noEmit"
+    "lint": "npx tsc --noEmit",
+    "typecheck": "npx tsc -p tsconfig.tooling.json"
   },
   "keywords": [
     "agentic",

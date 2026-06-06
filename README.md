@@ -30,6 +30,41 @@ agentloop list
 agentloop resolve ISSUE-000001 --summary "Added deterministic fallback for anchor selection"
 ```
 
+## Try the convergence demo
+
+Run a self-contained demo that seeds three independent intake loops — a smoke
+test, a user report, and an agent proposal — all pointing at the same
+`export_pipeline` family, and watch them converge into a single Pattern:
+
+```bash
+npm run demo
+```
+
+Expected output:
+
+```text
+AgentLoops source-convergence demo
+==================================
+
+Three intake loops, one underlying problem:
+
+  ISSUE-000001  bug            source=smoke        [export_pipeline]
+    Export smoke test times out on 500-page report
+  USER-000002   user_feedback  source=user_report  [export_pipeline]
+    Export fails for long reports
+  DEV-000003    feature        source=agent        [export_pipeline]
+    Stream the export pipeline instead of buffering
+
+Converged into:
+  PATTERN-000001 ACTIVE (3 tickets) — Recurring export_pipeline issues
+
+Summary: 3 tickets, 1 active pattern(s).
+```
+
+The demo writes to a throwaway temp directory and leaves your repo untouched.
+The same scenario is asserted in `test/demo.test.ts` against a committed golden
+state fixture; run it with `npm test`.
+
 ## Core concepts
 
 - Ticket: one concrete work item (bug, feature, user feedback, incident, etc.)

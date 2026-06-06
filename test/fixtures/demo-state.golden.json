@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "project": "AgentLoops Demo",
+  "createdAt": "<timestamp>",
+  "updatedAt": "<timestamp>",
+  "nextTicketSeq": 3,
+  "nextPatternSeq": 1,
+  "tickets": [
+    {
+      "id": "ISSUE-000001",
+      "family": "export_pipeline",
+      "kind": "bug",
+      "source": "smoke",
+      "title": "Export smoke test times out on 500-page report",
+      "summary": "The export smoke run exceeds its timeout when rendering very long reports.",
+      "severity": "high",
+      "confidence": "high",
+      "status": "triaged",
+      "createdAt": "<timestamp>",
+      "updatedAt": "<timestamp>",
+      "aliases": [
+        "ISSUE-000001"
+      ],
+      "tags": [
+        "export",
+        "timeout"
+      ],
+      "notes": [],
+      "reproducible": true,
+      "patternId": "PATTERN-000001"
+    },
+    {
+      "id": "ISSUE-000002",
+      "family": "export_pipeline",
+      "kind": "user_feedback",
+      "source": "user_report",
+      "title": "Export fails for long reports",
+      "summary": "A user reports that exporting a 500-page report fails with a timeout.",
+      "severity": "high",
+      "confidence": "medium",
+      "status": "triaged",
+      "createdAt": "<timestamp>",
+      "updatedAt": "<timestamp>",
+      "aliases": [
+        "USER-000002"
+      ],
+      "tags": [
+        "export",
+        "user"
+      ],
+      "notes": [],
+      "reproducible": true,
+      "patternId": "PATTERN-000001"
+    },
+    {
+      "id": "ISSUE-000003",
+      "family": "export_pipeline",
+      "kind": "feature",
+      "source": "agent",
+      "title": "Stream the export pipeline instead of buffering",
+      "summary": "Replace the buffered exporter with a streaming pipeline to remove the timeout ceiling.",
+      "severity": "medium",
+      "confidence": "medium",
+      "status": "triaged",
+      "createdAt": "<timestamp>",
+      "updatedAt": "<timestamp>",
+      "aliases": [
+        "DEV-000003"
+      ],
+      "tags": [
+        "export",
+        "streaming"
+      ],
+      "notes": [],
+      "reproducible": true,
+      "patternId": "PATTERN-000001"
+    }
+  ],
+  "patterns": [
+    {
+      "id": "PATTERN-000001",
+      "family": "export_pipeline",
+      "title": "Recurring export_pipeline issues",
+      "status": "active",
+      "createdAt": "<timestamp>",
+      "updatedAt": "<timestamp>",
+      "ticketIds": [
+        "ISSUE-000001",
+        "ISSUE-000002",
+        "ISSUE-000003"
+      ]
+    }
+  ]
+}
