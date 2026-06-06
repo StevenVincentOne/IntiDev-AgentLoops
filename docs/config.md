@@ -47,3 +47,21 @@ With the default config that yields:
 The canonical `ISSUE-` key keeps downstream systems stable while the alias gives
 each operational queue a recognizable prefix. Aliases and canonical ids share the
 same number, and any of them resolves back to the same ticket on lookup.
+
+### Prior-art scoring (optional)
+
+`agentloop related <id>` (and the `agentloop_related` MCP tool) rank related
+tickets from deterministic signals: shared family, shared pattern, shared tags,
+same kind, and title/summary token overlap. Core ships fixed default weights; a
+project can override any of them, or raise the default match threshold:
+
+```json
+{
+  "priorArt": {
+    "weights": { "family": 3, "pattern": 3, "tag": 2, "kind": 1, "textOverlap": 4 },
+    "minScore": 1
+  }
+}
+```
+
+Omit `priorArt` entirely to use the core defaults.

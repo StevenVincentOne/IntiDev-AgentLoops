@@ -34,6 +34,7 @@ Always available; annotated `readOnlyHint: true`.
 | `agentloop_guard_gaps` | `family?`, `includeWaived?`, `allKinds?` | `{ ..., filters, summary, gaps }` — resolved tickets (ISSUE/USER queues by default) lacking an active regression guard |
 | `agentloop_search_knowledge` | `family?`, `kind?`, `source?`, `tag?`, `query?`, `limit?` | `{ ..., filters, summary, entries }` — how prior resolved tickets were fixed (searchable corpus) |
 | `agentloop_knowledge_gaps` | `family?`, `severity?`, `source?` | `{ ..., filters, summary, gaps }` — resolved tickets whose knowledge is incomplete (missing resolution or verification) |
+| `agentloop_related` | `id`, `minScore?`, `limit?` | `{ ..., ticket, weights, related }` — prior-art lookup ranking tickets by shared family/pattern/tags/kind and title overlap (weights tunable via `config.priorArt`) |
 
 ## Write tools
 

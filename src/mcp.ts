@@ -454,6 +454,28 @@ export function createMcpServer(
     },
   );
 
+  server.registerTool(
+    "agentloop_related",
+    {
+      title: "Related tickets (prior art)",
+      description:
+        "Read-only prior-art lookup: tickets most related to the given id by shared family/pattern/tags/kind and title overlap.",
+      inputSchema: {
+        id: z.string(),
+        minScore: z.number().nonnegative().optional(),
+        limit: z.number().int().nonnegative().optional(),
+      },
+      annotations: readOnly,
+    },
+    async (args) => {
+      try {
+        return ok(await store.related(args.id, { minScore: args.minScore, limit: args.limit }));
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
   if (options.allowWrites) {
     registerWriteTools(server, store);
   }

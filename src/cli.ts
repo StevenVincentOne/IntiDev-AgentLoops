@@ -28,6 +28,7 @@ const COMMANDS = [
   "guard-gaps",
   "knowledge",
   "knowledge-gaps",
+  "related",
   "config",
   "mcp",
   "help",
@@ -97,6 +98,7 @@ function printHelp() {
   printLine("  guard-gaps [--family ..] [--include-waived] [--all-kinds]  resolved tickets missing a guard");
   printLine("  knowledge [--family ..] [--kind ..] [--query ..]  search resolved-ticket fix knowledge");
   printLine("  knowledge-gaps [--family ..] [--severity ..] [--source ..]  resolved tickets lacking reusable knowledge");
+  printLine("  related <id> [--min-score N] [--limit N]  prior-art: tickets related to <id>");
   printLine("  config                          print effective config");
   printLine("  mcp [--write]                   run the MCP server over stdio (read-only unless --write)");
 }
@@ -340,6 +342,15 @@ async function cmdKnowledgeGaps(options: ArgMap) {
   );
 }
 
+async function cmdRelated(argv: string[], options: ArgMap) {
+  const { store } = await ensureConfig();
+  const id = argv[1];
+  if (!id) throw new Error("related requires an id");
+  const minScore = typeof options["min-score"] === "string" ? Number(options["min-score"]) : undefined;
+  const limit = typeof options.limit === "string" ? Number(options.limit) : undefined;
+  printJson(await store.related(id, { minScore, limit }));
+}
+
 async function cmdConfig() {
   const { config } = await ensureConfig();
   printJson(config);
@@ -417,6 +428,9 @@ async function main() {
       break;
     case "knowledge-gaps":
       await cmdKnowledgeGaps(options);
+      break;
+    case "related":
+      await cmdRelated(args, options);
       break;
     case "config":
       await cmdConfig();

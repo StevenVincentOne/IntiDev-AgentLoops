@@ -90,6 +90,7 @@ state fixture; run it with `npm test`.
 - `agentloop guard-gaps` report resolved tickets missing a regression guard
 - `agentloop knowledge` search how prior resolved tickets were fixed
 - `agentloop knowledge-gaps` report resolved tickets lacking reusable knowledge
+- `agentloop related <id>` find prior-art tickets related to one ticket
 - `agentloop config` print resolved configuration
 - `agentloop mcp` run the read-only MCP server over stdio
 
@@ -118,6 +119,7 @@ Read-only tools (annotated `readOnlyHint`):
 | `agentloop_guard_gaps` | resolved tickets missing a regression guard |
 | `agentloop_search_knowledge` | search how prior resolved tickets were fixed |
 | `agentloop_knowledge_gaps` | resolved tickets lacking reusable knowledge |
+| `agentloop_related` | prior-art: tickets related to a given ticket |
 
 Write tools (only registered with `--write`):
 

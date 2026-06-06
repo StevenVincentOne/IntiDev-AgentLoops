@@ -29,6 +29,7 @@ import {
   KnowledgeGapsOptions,
   KnowledgeGapsReport,
 } from "./knowledge";
+import { relatedTickets, PriorArtOptions, PriorArtReport } from "./prior-art";
 
 type StateEnvelope = LoopState;
 
@@ -270,6 +271,17 @@ export class AgentLoopStore {
   async knowledgeGaps(options: KnowledgeGapsOptions = {}): Promise<KnowledgeGapsReport> {
     const state = await this.ensureInitialized();
     return knowledgeGaps(state.tickets, options);
+  }
+
+  async related(rawId: string, options: PriorArtOptions = {}): Promise<PriorArtReport> {
+    const state = await this.ensureInitialized();
+    const targetId = normalizeTicketInput(rawId, state.tickets);
+    const configured = this.config.priorArt;
+    return relatedTickets(targetId, state.tickets, {
+      weights: { ...configured?.weights, ...options.weights },
+      minScore: options.minScore ?? configured?.minScore,
+      limit: options.limit,
+    });
   }
 
   private async transitionTicket(rawId: string, status?: TicketStatus): Promise<Ticket> {

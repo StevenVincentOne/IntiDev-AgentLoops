@@ -52,6 +52,17 @@ export interface ProjectConfig {
     autoCreateByFamily: boolean;
     defaultFamily: string;
   };
+  /** Optional overrides for prior-art relatedness scoring. Core defaults apply when omitted. */
+  priorArt?: {
+    weights?: Partial<{
+      family: number;
+      pattern: number;
+      tag: number;
+      kind: number;
+      textOverlap: number;
+    }>;
+    minScore?: number;
+  };
 }
 
 export interface TicketNote {

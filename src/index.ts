@@ -32,6 +32,17 @@ export type {
   KnowledgeGapsReport,
 } from "./knowledge";
 export {
+  relatedTickets,
+  PRIOR_ART_SCHEMA_VERSION,
+  DEFAULT_PRIOR_ART_WEIGHTS,
+} from "./prior-art";
+export type {
+  PriorArtWeights,
+  PriorArtOptions,
+  PriorArtReport,
+  RelatedTicket,
+} from "./prior-art";
+export {
   createMcpServer,
   startStdioMcpServer,
   summaryTool,
