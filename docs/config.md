@@ -65,3 +65,24 @@ project can override any of them, or raise the default match threshold:
 ```
 
 Omit `priorArt` entirely to use the core defaults.
+
+### Redaction (optional)
+
+By default ticket text is stored unchanged. Add regex rules under
+`redaction.patterns` to scrub sensitive content (PII, secrets) on every write —
+titles, summaries, notes, resolutions, and guard summaries, via both the CLI and
+the MCP write tools:
+
+```json
+{
+  "redaction": {
+    "patterns": [
+      { "name": "email", "pattern": "[\\w.]+@[\\w.]+\\.[a-z]+", "replacement": "[email]" }
+    ]
+  }
+}
+```
+
+Each rule takes a `pattern` (regex source), optional `flags` (default `g`), and
+optional `replacement` (default `[redacted]`). Library users can instead inject a
+`TicketRedactor` directly: `new AgentLoopStore(cwd, config, { redactor })`.
