@@ -87,8 +87,49 @@ state fixture; run it with `npm test`.
 - `agentloop patterns` list pattern groups
 - `agentloop summary` print quick health metrics
 - `agentloop config` print resolved configuration
+- `agentloop mcp` run the read-only MCP server over stdio
 
 All commands support `--json` for machine-readable output where relevant.
+
+## MCP server (agent integration)
+
+AgentLoops ships an [MCP](https://modelcontextprotocol.io) server so coding
+agents (Claude Code, Codex, and other MCP clients) can read the ledger directly.
+This first phase exposes **read-only** tools; create/resolve/guard writes stay on
+the CLI until write tools are added behind explicit policy.
+
+```bash
+agentloop mcp            # speaks JSON-RPC over stdio; status is logged to stderr
+```
+
+Tools (each annotated `readOnlyHint`):
+
+| Tool | Purpose |
+| --- | --- |
+| `agentloop_summary` | loop health metrics (ticket and pattern counts) |
+| `agentloop_list` | list tickets, optional `status` / `kind` filters |
+| `agentloop_show` | one ticket (by `ISSUE-`/alias) or a `PATTERN-` id |
+| `agentloop_handoff` | copyable agent handoff prompt for a ticket |
+
+Each result is a JSON envelope with `schemaVersion` and `generatedAt`. The server
+reads state from the `.agentloops/state.json` in its working directory, so run it
+from your project root (or where you ran `agentloop init`).
+
+Register it with an MCP client, for example Claude Code:
+
+```bash
+claude mcp add agentloop -- agentloop mcp
+```
+
+or directly in a client config:
+
+```json
+{
+  "mcpServers": {
+    "agentloop": { "command": "agentloop", "args": ["mcp"] }
+  }
+}
+```
 
 ## Data model
 

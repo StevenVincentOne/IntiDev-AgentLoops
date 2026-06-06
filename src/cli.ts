@@ -7,6 +7,7 @@ import {
   TicketStatus,
 } from "./types";
 import { AgentLoopStore, normalizeTicketInput } from "./store";
+import { buildHandoffPrompt } from "./handoff";
 
 type ArgMap = Record<string, string | boolean>;
 
@@ -24,6 +25,7 @@ const COMMANDS = [
   "handoff",
   "summary",
   "config",
+  "mcp",
   "help",
 ];
 
@@ -88,6 +90,7 @@ function printHelp() {
   printLine("  handoff <id>                    print agent handoff prompt");
   printLine("  summary                         print loop stats");
   printLine("  config                          print effective config");
+  printLine("  mcp [--stdio]                   run the read-only MCP server (stdio)");
 }
 
 async function ensureConfig() {
@@ -272,7 +275,7 @@ async function cmdHandoff(argv: string[]) {
   if (!id) throw new Error("handoff requires <id>");
   const ticket = await store.showTicket(id);
   if (!ticket) throw new Error(`Not found: ${id}`);
-  const prompt = ticket.handoffText ?? `Fix ${ticket.kind} ${ticket.id}: ${ticket.title}\nSymptom: ${ticket.summary}\nFamily: ${ticket.family}\nSeverity: ${ticket.severity}`;
+  const prompt = buildHandoffPrompt(ticket);
   printLine(`Ticket: ${ticket.id}`);
   printLine(`Aliases: ${ticket.aliases.join(", ")}`);
   printLine("Copyable agent handoff:");
@@ -287,6 +290,16 @@ async function cmdSummary() {
 async function cmdConfig() {
   const { config } = await ensureConfig();
   printJson(config);
+}
+
+async function cmdMcp() {
+  const { cwd, config } = await ensureConfig();
+  // Lazy-load so the MCP SDK is only required when this command runs, and so
+  // its dependency never affects startup of the other CLI commands.
+  const { startStdioMcpServer } = await import("./mcp.js");
+  // stdout is reserved for the JSON-RPC stream; status goes to stderr.
+  process.stderr.write("agentloop MCP server ready on stdio (read-only)\n");
+  await startStdioMcpServer({ cwd, config });
 }
 
 async function main() {
@@ -338,6 +351,9 @@ async function main() {
       break;
     case "config":
       await cmdConfig();
+      break;
+    case "mcp":
+      await cmdMcp();
       break;
     default:
       printHelp();

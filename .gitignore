@@ -8,7 +8,9 @@ build/
 tmp/
 *.log
 *.tsbuildinfo
-.agentloops/*.tmp
+# This is the AgentLoops tool repo itself; never commit a local ledger created
+# by running the CLI/demo here (demo writes to a temp dir, but guard anyway).
+.agentloops/
 
 # local env
 .env
