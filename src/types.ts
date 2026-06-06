@@ -63,6 +63,37 @@ export interface ProjectConfig {
     }>;
     minScore?: number;
   };
+  /** Optional config-driven redaction. Library users can also inject a TicketRedactor directly. */
+  redaction?: {
+    patterns?: RedactionRule[];
+  };
+}
+
+/** Context passed to a redactor so host implementations can vary behavior by field/ticket. */
+export interface RedactionContext {
+  field: string;
+  ticketKind?: string;
+  source?: string;
+}
+
+/**
+ * Host-pluggable redaction hook. Core ships a no-op default and a config-driven
+ * pattern redactor; host apps own real PII/secret scrubbing.
+ */
+export interface TicketRedactor {
+  redactText(value: string, context: RedactionContext): string;
+  redactJson(value: unknown, context: RedactionContext): unknown;
+}
+
+/** A single config-driven redaction rule (regex → replacement). */
+export interface RedactionRule {
+  name?: string;
+  /** Regular-expression source. */
+  pattern: string;
+  /** Regex flags; defaults to "g". */
+  flags?: string;
+  /** Replacement string; defaults to "[redacted]". */
+  replacement?: string;
 }
 
 export interface TicketNote {

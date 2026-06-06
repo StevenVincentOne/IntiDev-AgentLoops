@@ -9,11 +9,14 @@ import {
   Pattern,
   PatternStatus,
   ProjectConfig,
+  RedactionContext,
   ResolveInput,
   Ticket,
+  TicketRedactor,
   TicketStatus,
 } from "./types";
 import { requiredFields } from "./config";
+import { resolveRedactor } from "./redaction";
 import { deriveAliases } from "./aliases";
 import {
   sourceConvergenceReport,
@@ -51,12 +54,19 @@ function nowIso() {
 export class AgentLoopStore {
   private statePath: string;
   private state: StateEnvelope | null = null;
+  private readonly redactor: TicketRedactor;
 
   constructor(
     private readonly cwd: string,
     private readonly config: ProjectConfig,
+    options: { redactor?: TicketRedactor } = {},
   ) {
     this.statePath = join(cwd, ".agentloops", STATE_FILE_NAME);
+    this.redactor = resolveRedactor(config, options.redactor);
+  }
+
+  private redact(value: string, context: RedactionContext): string {
+    return this.redactor.redactText(value, context);
   }
 
   async ensureInitialized(project = this.config.projectName): Promise<LoopState> {
@@ -99,13 +109,14 @@ export class AgentLoopStore {
     const defaults = defaultKindConfig?.defaultSeverity ?? "medium";
     const c = this.nowState;
     const aliases = deriveAliases({ kind, source }, state.nextTicketSeq, this.config);
+    const ctx = (field: string): RedactionContext => ({ field, ticketKind: kind, source });
     const ticket: Ticket = {
       id,
       family,
       kind,
       source,
-      title,
-      summary,
+      title: this.redact(title, ctx("title")),
+      summary: this.redact(summary, ctx("summary")),
       severity: severity ?? defaults,
       confidence: confidence ?? "medium",
       status: "triaged",
@@ -114,7 +125,7 @@ export class AgentLoopStore {
       aliases: Array.from(new Set(aliases)),
       tags: Array.from(new Set(tags)),
       notes: [],
-      handoffText,
+      handoffText: handoffText ? this.redact(handoffText, ctx("handoffText")) : undefined,
       reproducible: true,
     };
     ticket.patternId = this.attachPattern(state, family, ticket.id);
@@ -161,16 +172,27 @@ export class AgentLoopStore {
   async beginTicket(rawId: string): Promise<Ticket> {
     const ticket = await this.transitionTicket(rawId, "active");
     ticket.startedAt = nowIso();
+    await this.persist();
     return ticket;
   }
 
   async resolveTicket(input: ResolveInput): Promise<Ticket> {
     const ticket = await this.transitionTicket(input.id, "resolved");
-    ticket.resolutionSummary = input.summary;
-    ticket.verification = input.verification;
+    const ctx = (field: string): RedactionContext => ({
+      field,
+      ticketKind: ticket.kind,
+      source: ticket.source,
+    });
+    ticket.resolutionSummary = this.redact(input.summary, ctx("resolutionSummary"));
+    ticket.verification = input.verification
+      ? this.redact(input.verification, ctx("verification"))
+      : undefined;
     ticket.resolvedAt = nowIso();
     ticket.guardStatus = input.guardStatus ?? "none";
-    ticket.guardSummary = input.guardSummary;
+    ticket.guardSummary = input.guardSummary
+      ? this.redact(input.guardSummary, ctx("guardSummary"))
+      : undefined;
+    await this.persist();
     return ticket;
   }
 
@@ -179,9 +201,26 @@ export class AgentLoopStore {
     ticket.notes.push({
       id: `${ticket.id}-note-${Date.now()}`,
       type: "hypothesis",
-      body: `Reopened: ${reason}`,
+      body: `Reopened: ${this.redact(reason, this.noteCtx(ticket))}`,
       createdAt: nowIso(),
     });
+    ticket.updatedAt = nowIso();
+    await this.persist();
+    return ticket;
+  }
+
+  async deferTicket(rawId: string, reason?: string): Promise<Ticket> {
+    const ticket = await this.transitionTicket(rawId, "deferred");
+    if (reason) {
+      ticket.notes.push({
+        id: `${ticket.id}-note-${Date.now()}`,
+        type: "triage",
+        body: `Deferred: ${this.redact(reason, this.noteCtx(ticket))}`,
+        createdAt: nowIso(),
+      });
+    }
+    ticket.updatedAt = nowIso();
+    await this.persist();
     return ticket;
   }
 
@@ -190,7 +229,7 @@ export class AgentLoopStore {
     ticket.notes.push({
       id: `${ticket.id}-note-${Date.now()}`,
       type,
-      body,
+      body: this.redact(body, this.noteCtx(ticket)),
       author,
       createdAt: nowIso(),
     });
@@ -202,9 +241,15 @@ export class AgentLoopStore {
   async setGuard(rawId: string, status: GuardStatus, summary?: string): Promise<Ticket> {
     const ticket = await this.transitionTicket(rawId, undefined);
     ticket.guardStatus = status;
-    ticket.guardSummary = summary;
+    ticket.guardSummary = summary
+      ? this.redact(summary, { field: "guardSummary", ticketKind: ticket.kind, source: ticket.source })
+      : undefined;
     await this.persist();
     return ticket;
+  }
+
+  private noteCtx(ticket: Ticket): RedactionContext {
+    return { field: "note", ticketKind: ticket.kind, source: ticket.source };
   }
 
   async resolvePattern(patternId: string, note: string): Promise<Pattern> {
@@ -234,6 +279,7 @@ export class AgentLoopStore {
       triagedTickets: state.tickets.filter((t) => t.status === "triaged").length,
       resolvedTickets: state.tickets.filter((t) => t.status === "resolved").length,
       reopenedTickets: state.tickets.filter((t) => t.status === "reopened").length,
+      deferredTickets: state.tickets.filter((t) => t.status === "deferred").length,
       openPatterns: state.patterns.filter((p) => p.status === "active").length,
       stalledPatterns: state.patterns.filter((p) => p.status === "open").length,
       resolvedPatterns: state.patterns.filter((p) => p.status === "resolved").length,
@@ -284,6 +330,9 @@ export class AgentLoopStore {
     });
   }
 
+  // Resolves an id/alias and optionally applies a status change. Does NOT
+  // persist — callers mutate further (notes, timestamps, resolution fields) and
+  // persist once when done, so those mutations are never lost.
   private async transitionTicket(rawId: string, status?: TicketStatus): Promise<Ticket> {
     const state = await this.ensureInitialized();
     const targetId = normalizeTicketInput(rawId, state.tickets);
@@ -295,7 +344,6 @@ export class AgentLoopStore {
       ticket.status = status;
       ticket.updatedAt = nowIso();
     }
-    await this.persist();
     return ticket;
   }
 

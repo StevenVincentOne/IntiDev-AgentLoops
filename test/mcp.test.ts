@@ -191,6 +191,9 @@ test("noteTool / workflowTool / guardTool mutate a ticket", async () => {
     const reopened = await workflowTool(store, { id: "DEV-000003", status: "reopened" });
     assert.equal(reopened.ticket.status, "reopened");
 
+    const deferred = await workflowTool(store, { id: "ISSUE-000001", status: "deferred", reason: "later" });
+    assert.equal(deferred.ticket.status, "deferred");
+
     const guarded = await guardTool(store, {
       id: "ISSUE-000001",
       guardStatus: "guard_added",

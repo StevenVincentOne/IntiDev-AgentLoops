@@ -158,7 +158,7 @@ export const GUARD_STATUSES = [
   "none",
 ] as const satisfies readonly GuardStatus[];
 /** Workflow transitions exposed over MCP. `resolved` has its own tool. */
-export const WORKFLOW_STATUSES = ["active", "reopened"] as const satisfies readonly TicketStatus[];
+export const WORKFLOW_STATUSES = ["active", "reopened", "deferred"] as const satisfies readonly TicketStatus[];
 
 /** Source recorded for tickets/notes created by an MCP agent client. */
 export const MCP_ACTOR_SOURCE = "agent";
@@ -219,9 +219,11 @@ export async function workflowTool(
     ticket = await store.beginTicket(args.id);
   } else if (args.status === "reopened") {
     ticket = await store.reopenTicket(args.id, args.reason ?? "recurrence detected");
+  } else if (args.status === "deferred") {
+    ticket = await store.deferTicket(args.id, args.reason);
   } else {
     throw new Error(
-      `Unsupported workflow status: ${args.status} (use active|reopened; resolve via agentloop_resolve)`,
+      `Unsupported workflow status: ${args.status} (use active|reopened|deferred; resolve via agentloop_resolve)`,
     );
   }
   return { ...envelope(), action: "workflow", ticket };
@@ -542,7 +544,7 @@ function registerWriteTools(server: McpServer, store: AgentLoopStore): void {
     {
       title: "Workflow transition",
       description:
-        "Transition a ticket: status 'active' begins work, 'reopened' records a recurrence. Resolve via agentloop_resolve.",
+        "Transition a ticket: status 'active' begins work, 'reopened' records a recurrence, 'deferred' shelves it (optional reason). Resolve via agentloop_resolve.",
       inputSchema: {
         id: z.string(),
         status: z.enum(WORKFLOW_STATUSES),

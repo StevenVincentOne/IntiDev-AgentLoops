@@ -45,7 +45,7 @@ action, ticket }`, where `ticket` carries the canonical `id` and queue `aliases`
 | --- | --- | --- |
 | `agentloop_create` | `summary` (required), `title?`, `family?`, `kind?`, `source?`, `severity?`, `confidence?`, `tags?`, `handoff?` | `kind`/`family` default from config; `source` defaults to `agent` |
 | `agentloop_note` | `id`, `body` (required), `type?`, `author?` | `type` defaults to `triage`, `author` to `agent` |
-| `agentloop_workflow` | `id`, `status` (`active` \| `reopened`), `reason?` | resolve via `agentloop_resolve`, not here |
+| `agentloop_workflow` | `id`, `status` (`active` \| `reopened` \| `deferred`), `reason?` | resolve via `agentloop_resolve`, not here |
 | `agentloop_resolve` | `id`, `summary` (required), `verification?`, `guardStatus?`, `guardSummary?` | |
 | `agentloop_guard` | `id`, `guardStatus`, `guardSummary?` | |
 
@@ -60,8 +60,8 @@ Notes:
   Fields are added, not removed, within a schema version.
 - Unknown ids return a tool error (`isError: true`) with a readable message
   rather than failing the protocol call.
-- Writes do not yet redact user content or secrets — that lands with the
-  redaction adapter; keep sensitive payloads out of tickets for now.
+- Writes pass through the configured redactor before storage (no-op by default;
+  see `redaction.patterns` in [config](config.md) or inject a `TicketRedactor`).
 
 ## Client configuration
 

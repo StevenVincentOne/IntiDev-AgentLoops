@@ -20,6 +20,7 @@ const COMMANDS = [
   "begin",
   "resolve",
   "reopen",
+  "defer",
   "note",
   "guard",
   "handoff",
@@ -90,6 +91,7 @@ function printHelp() {
   printLine("  begin <id>                      begin a triaged item");
   printLine("  resolve <id> --summary ...      resolve a ticket");
   printLine("  reopen <id> --summary ...       reopen a resolved/reopen-risk item");
+  printLine("  defer <id> [--summary ...]      defer a ticket (records an optional reason)");
   printLine("  note <id> --type ... --body ... add a non-resolution note");
   printLine("  guard <id> --guard-status ...   set guard decision");
   printLine("  handoff <id>                    print agent handoff prompt");
@@ -257,6 +259,20 @@ async function cmdReopen(argv: string[], options: ArgMap) {
   printJson(ticket);
 }
 
+async function cmdDefer(argv: string[], options: ArgMap) {
+  const { store } = await ensureConfig();
+  const id = argv[1];
+  if (!id) throw new Error("defer requires <id>");
+  const reason =
+    typeof options.summary === "string"
+      ? options.summary
+      : typeof options.reason === "string"
+        ? options.reason
+        : undefined;
+  const ticket = await store.deferTicket(id, reason);
+  printJson(ticket);
+}
+
 async function cmdNote(argv: string[], options: ArgMap) {
   const { store } = await ensureConfig();
   const id = argv[1];
@@ -404,6 +420,9 @@ async function main() {
       break;
     case "reopen":
       await cmdReopen(args, options);
+      break;
+    case "defer":
+      await cmdDefer(args, options);
       break;
     case "note":
       await cmdNote(args, options);

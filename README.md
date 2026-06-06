@@ -81,6 +81,7 @@ state fixture; run it with `npm test`.
 - `agentloop begin <id>` mark triaged ticket as in-progress
 - `agentloop resolve <id> --summary ...` mark resolved with evidence
 - `agentloop reopen <id>` reopen and record a recurrence reason
+- `agentloop defer <id> [--summary ...]` defer a ticket with an optional reason
 - `agentloop note <id> --type ... --body ...` add context notes
 - `agentloop guard <id> --guard-status ...` record guard decision
 - `agentloop handoff <id>` print a copyable agent handoff prompt
@@ -127,7 +128,7 @@ Write tools (only registered with `--write`):
 | --- | --- |
 | `agentloop_create` | create a ticket (`summary` required; `source` defaults to `agent`) |
 | `agentloop_note` | append a non-resolution note |
-| `agentloop_workflow` | transition a ticket (`active` / `reopened`) |
+| `agentloop_workflow` | transition a ticket (`active` / `reopened` / `deferred`) |
 | `agentloop_resolve` | resolve with a summary, optional verification + guard |
 | `agentloop_guard` | record a regression-guard decision |
 
@@ -166,6 +167,23 @@ The config controls:
 - ticket kinds and aliases (`ISSUE`, `DEV`, `USER`, etc.)
 - default family for auto-grouping
 - configured sources
+
+## Privacy and redaction
+
+By default AgentLoops stores ticket text as-is and makes no model or network calls.
+Host apps own redaction. Two ways to scrub sensitive content (PII, secrets) before
+it is written to `.agentloops/state.json`:
+
+- **Config-driven** — add regex rules under `redaction.patterns` in
+  `agentloop.config.json`; they apply to titles, summaries, notes, resolutions,
+  and guard summaries on every write (CLI and MCP included):
+
+  ```json
+  { "redaction": { "patterns": [{ "pattern": "[\\w.]+@[\\w.]+\\.[a-z]+", "replacement": "[email]" }] } }
+  ```
+
+- **Code-driven** — library users can inject a `TicketRedactor`:
+  `new AgentLoopStore(cwd, config, { redactor })`.
 
 ## Contributing
 
