@@ -77,5 +77,8 @@ export function mergeConfig(partial: Partial<ProjectConfig>): ProjectConfig {
       ...DEFAULT_CONFIG.patterns,
       ...(partial.patterns ?? {}),
     },
+    ticketGroups: partial.ticketGroups
+      ? { ...DEFAULT_CONFIG.ticketGroups, ...partial.ticketGroups }
+      : DEFAULT_CONFIG.ticketGroups,
   };
 }

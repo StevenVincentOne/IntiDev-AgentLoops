@@ -10,6 +10,21 @@ export type TicketKind =
 export type TicketStatus = "triaged" | "active" | "resolved" | "reopened" | "deferred";
 export type PatternStatus = "open" | "active" | "resolved" | "reopened";
 
+/**
+ * Optional reporter self-assessment captured at intake time: "what do you
+ * already believe about this ticket's novelty/relatedness?" ("History
+ * context" in Inti's intake form). Purely informational on its own — but
+ * AgentLoops auto-surfaces `related`/`nearDuplicates` candidates at creation
+ * time when a hint suggests the reporter believes prior art may exist (see
+ * `PRIOR_ART_HINT_AUTO_SURFACE` in prior-art.ts), turning a self-report into
+ * an actionable check rather than just a label.
+ */
+export type PriorArtHint =
+  | "new"
+  | "previously_ticketed"
+  | "existing_pattern"
+  | "adjacent_issues";
+
 export type Severity = "low" | "medium" | "high" | "critical";
 
 export type Confidence = "low" | "medium" | "high";
@@ -83,6 +98,22 @@ export interface ProjectConfig {
     patterns?: RedactionRule[];
   };
   /**
+   * Optional overrides for the Ticket Groups report — broad, low-investment
+   * triage clusters of open work, distinct from (and feeding into) Patterns.
+   * Ships with generic, zero-config bases (family, tag, auto-detected shared
+   * keywords); `customRules` is the path to project-specific clustering
+   * vocabulary (e.g. a known error-code list, or an embedded correlation key)
+   * without AgentLoops core needing to understand the domain.
+   */
+  ticketGroups?: {
+    /** Minimum members for a cluster to surface as a group. Default 2. */
+    minSize?: number;
+    /** Maximum groups returned. Default 10. */
+    limit?: number;
+    /** Project-defined clustering rules — see `TicketGroupCustomRule`. */
+    customRules?: TicketGroupCustomRule[];
+  };
+  /**
    * Optional storage selection for the CLI/MCP. Prefer the `DATABASE_URL`
    * environment variable for the connection string (it takes precedence) so
    * secrets stay out of committed config.
@@ -137,6 +168,33 @@ export interface RedactionRule {
   replacement?: string;
 }
 
+/**
+ * A project-defined extension rule for the Ticket Groups report — the
+ * customization path that lets a host project express its own recurring-
+ * symptom vocabulary or embedded correlation keys without AgentLoops core
+ * needing to know what they mean.
+ *
+ * - `"keyword"`: does `pattern` match the ticket's text? If so, every matching
+ *   ticket joins one shared bucket named `name` (e.g. a known error code).
+ * - `"correlation"`: `pattern` must contain exactly one capture group; the
+ *   captured text becomes the bucket key, so tickets are grouped by whatever
+ *   value they share (e.g. a document id, a release tag, a customer id)
+ *   rather than by the rule itself.
+ */
+export interface TicketGroupCustomRule {
+  /** Stable identifier; appears in the resulting group's key as `custom:<name>` (or `custom:<name>:<captured>`). */
+  name: string;
+  /** Human label for groups this rule produces, e.g. "Known error code" or "Document". */
+  label: string;
+  kind: "keyword" | "correlation";
+  /** Regex source. "correlation" rules must include exactly one capture group. */
+  pattern: string;
+  /** Regex flags; defaults to "i". */
+  flags?: string;
+  /** Ticket text fields to search, in order. Defaults to title + summary + handoffText. */
+  fields?: Array<"title" | "summary" | "handoffText">;
+}
+
 export interface TicketNote {
   id: string;
   type: NoteType;
@@ -176,6 +234,8 @@ export interface Ticket {
   handoffText?: string;
   guardStatus?: GuardStatus;
   guardSummary?: string;
+  /** Reporter's self-assessed "history context" at intake time, if provided. */
+  priorArtHint?: PriorArtHint;
   patternId?: string;
   verification?: string;
   reproducible?: boolean;
@@ -242,6 +302,8 @@ export interface CreateTicketInput {
   confidence?: Confidence;
   tags?: string[];
   handoffText?: string;
+  /** Reporter's self-assessed "history context" at intake time, if provided. */
+  priorArtHint?: PriorArtHint;
 }
 
 export interface ResolveInput {

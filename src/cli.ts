@@ -3,12 +3,14 @@ import { loadConfig, writeDefaultConfig } from "./config";
 import {
   Confidence,
   PatternStatus,
+  PriorArtHint,
   ProjectConfig,
   TicketKind,
   TicketStatus,
 } from "./types";
 import { promises as fs } from "node:fs";
 import { AgentLoopStore, normalizeTicketInput } from "./store";
+import { shouldSurfacePriorArt } from "./prior-art";
 import { buildHandoffPrompt } from "./handoff";
 import { gatherDashboardData, renderDashboard } from "./dashboard";
 import { createDashboardServer } from "./serve";
@@ -36,6 +38,7 @@ const COMMANDS = [
   "workflow-audit",
   "workflow-repair",
   "near-duplicates",
+  "groups",
   "knowledge",
   "knowledge-gaps",
   "related",
@@ -99,7 +102,8 @@ function printHelp() {
   printLine("IntiDev AgentLoops");
   printLine("Commands:");
   printLine("  init                            initialize a project loop");
-  printLine("  create --title ... --summary ... create a new issue/feature/feedback");
+  printLine("  create --title ... --summary ... [--prior-art-hint new|previously_ticketed|existing_pattern|adjacent_issues]");
+  printLine("                                  create a new issue/feature/feedback; a non-'new' hint auto-checks for prior art");
   printLine("  list [--status triaged|active|resolved|all] list tickets");
   printLine("  show <id>                       inspect ticket");
   printLine("  patterns [--status open|active|resolved|all] list patterns");
@@ -118,6 +122,8 @@ function printHelp() {
   printLine("                                  fix that drift: reopen/resolve patterns to match their tickets (write unless --dry-run)");
   printLine("  near-duplicates [--family ..] [--min-overlap 0.5] [--include-resolved] [--limit 20]");
   printLine("                                  open tickets whose title/summary look like the same problem");
+  printLine("  groups [--family ..] [--min-size 2] [--limit 10]");
+  printLine("                                  broad triage clusters of open work worth reviewing together (not resolution objects — see Patterns)");
   printLine("  knowledge [--family ..] [--kind ..] [--query ..]  search resolved-ticket fix knowledge");
   printLine("  knowledge-gaps [--family ..] [--severity ..] [--source ..]  resolved tickets lacking reusable knowledge");
   printLine("  related <id> [--min-score N] [--limit N]  prior-art: tickets related to <id> (on-the-fly)");
@@ -198,6 +204,8 @@ async function cmdCreate(argv: string[], options: ArgMap) {
     ? options.confidence
     : "medium") as Confidence;
   const tags = toArray(options.tags as string | boolean);
+  const priorArtHint =
+    typeof options["prior-art-hint"] === "string" ? (options["prior-art-hint"] as PriorArtHint) : undefined;
   const ticket = await store.createTicket({
     title,
     summary,
@@ -208,15 +216,32 @@ async function cmdCreate(argv: string[], options: ArgMap) {
     confidence,
     tags,
     handoffText: typeof options.handoff === "string" ? options.handoff : undefined,
+    priorArtHint,
   });
+
+  // "History context" auto-surfacing: when the reporter signals they believe
+  // prior art may exist, run the prior-art check immediately and show
+  // candidates — instead of leaving the hint as a label nobody acts on.
+  let suggestions: Awaited<ReturnType<AgentLoopStore["related"]>>["related"] = [];
+  if (shouldSurfacePriorArt(priorArtHint)) {
+    const related = await store.related(ticket.id, { limit: 5 });
+    suggestions = related.related;
+  }
+
   if (options.json) {
-    printJson(ticket);
+    printJson(suggestions.length > 0 ? { ticket, priorArtSuggestions: suggestions } : ticket);
   } else {
     printLine(`Created ${ticket.id} (${ticket.aliases.join(", ")})`);
     printLine(`kind=${ticket.kind} family=${ticket.family} status=${ticket.status}`);
     printLine(`title: ${ticket.title}`);
     if (ticket.patternId) {
       printLine(`Pattern: ${ticket.patternId}`);
+    }
+    if (suggestions.length > 0) {
+      printLine(`Possible prior art (priorArtHint=${priorArtHint}):`);
+      for (const candidate of suggestions) {
+        printLine(`  ${candidate.alias}  score=${candidate.score}  ${candidate.title}  [${candidate.signals.join(", ")}]`);
+      }
     }
   }
 }
@@ -412,6 +437,14 @@ async function cmdNearDuplicates(options: ArgMap) {
   printJson(await store.nearDuplicates({ family, minTextOverlap, includeResolved, limit }));
 }
 
+async function cmdGroups(options: ArgMap) {
+  const { store } = await ensureConfig();
+  const family = typeof options.family === "string" ? options.family : undefined;
+  const minSize = typeof options["min-size"] === "string" ? Number(options["min-size"]) : undefined;
+  const limit = typeof options.limit === "string" ? Number(options.limit) : undefined;
+  printJson(await store.ticketGroups({ family, minSize, limit }));
+}
+
 async function cmdKnowledge(options: ArgMap) {
   const { store } = await ensureConfig();
   const str = (key: string) => (typeof options[key] === "string" ? (options[key] as string) : undefined);
@@ -596,6 +629,9 @@ async function main() {
       break;
     case "near-duplicates":
       await cmdNearDuplicates(options);
+      break;
+    case "groups":
+      await cmdGroups(options);
       break;
     case "knowledge":
       await cmdKnowledge(options);

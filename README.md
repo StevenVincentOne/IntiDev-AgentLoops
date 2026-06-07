@@ -78,7 +78,7 @@ state fixture; run it with `npm test`.
 ## Commands
 
 - `agentloop init` initialize `.agentloops` state and local config
-- `agentloop create` add a ticket
+- `agentloop create [--prior-art-hint new|previously_ticketed|existing_pattern|adjacent_issues]` add a ticket; a non-`new` hint auto-checks for and prints possible prior art (see "History context")
 - `agentloop list` view active and resolved work
 - `agentloop begin <id>` mark triaged ticket as in-progress
 - `agentloop resolve <id> --summary ...` mark resolved with evidence
@@ -94,6 +94,7 @@ state fixture; run it with `npm test`.
 - `agentloop workflow-audit` report patterns whose status disagrees with their linked tickets
 - `agentloop workflow-repair [--dry-run]` fix that drift: reopen/resolve patterns to match their tickets
 - `agentloop near-duplicates` report open tickets whose title/summary look like the same problem
+- `agentloop groups [--family ..] [--min-size 2] [--limit 10]` broad triage clusters of open work worth reviewing together — not resolution objects (see Patterns); customize clustering vocabulary via `ticketGroups.customRules` in config
 - `agentloop knowledge` search how prior resolved tickets were fixed
 - `agentloop knowledge-gaps` report resolved tickets lacking reusable knowledge
 - `agentloop related <id>` find prior-art tickets related to one ticket (on-the-fly, not persisted)
@@ -131,6 +132,7 @@ Read-only tools (annotated `readOnlyHint`):
 | `agentloop_guard_gaps` | resolved tickets missing a regression guard |
 | `agentloop_workflow_audit` | patterns whose status disagrees with their linked tickets |
 | `agentloop_near_duplicates` | open tickets whose title/summary look like the same problem |
+| `agentloop_ticket_groups` | broad triage clusters of open work — "worth reviewing together," not resolution objects (see Patterns); each group surfaces narrower "candidate splits" |
 | `agentloop_search_knowledge` | search how prior resolved tickets were fixed |
 | `agentloop_knowledge_gaps` | resolved tickets lacking reusable knowledge |
 | `agentloop_related` | prior-art: tickets related to a given ticket (on-the-fly, not persisted) |
@@ -140,7 +142,7 @@ Write tools (only registered with `--write`):
 
 | Tool | Purpose |
 | --- | --- |
-| `agentloop_create` | create a ticket (`summary` required; `source` defaults to `agent`) |
+| `agentloop_create` | create a ticket (`summary` required; `source` defaults to `agent`); optional `priorArtHint` records intake-time "history context" and, when it suggests prior art may exist, auto-surfaces candidates as `priorArtSuggestions` |
 | `agentloop_note` | append a non-resolution note |
 | `agentloop_workflow` | transition a ticket (`active` / `reopened` / `deferred`) |
 | `agentloop_resolve` | resolve with a summary, optional verification + guard |
@@ -250,6 +252,92 @@ it is written to `.agentloops/state.json`:
 
 - **Code-driven** — library users can inject a `TicketRedactor`:
   `new AgentLoopStore(cwd, config, { redactor })`.
+
+## Ticket Groups (triage clusters)
+
+`agentloop groups` (and the `agentloop_ticket_groups` MCP tool) surfaces broad,
+low-investment **Groups**: clusters of open work that are "worth reviewing
+together," explicitly distinguished from **Patterns** (a curated, corroborated
+shared root cause). Groups are the cheap front door — a triage queue — and a
+Group only earns a Pattern once a narrower shared signal is confirmed. Each
+group also lists **candidate splits**: narrower sub-clusters sharing a
+*different* signal, worth reviewing as their own Group/Pattern before assuming
+the whole cluster shares one cause.
+
+Out of the box, grouping runs on generic, zero-config bases — `family`, shared
+`tags`, and auto-detected recurring keywords (the same `tokenize`/`jaccard`
+text-overlap machinery `near-duplicates` uses, generalized into clusters). Most
+real projects also have their own recurring vocabulary — known error codes, a
+correlation key embedded in ticket text, a release tag — that's specific to
+their domain. Rather than baking any of that in, `ticketGroups.customRules` in
+`agentloop.config.json` is the customization path:
+
+```json
+{
+  "ticketGroups": {
+    "minSize": 2,
+    "limit": 10,
+    "customRules": [
+      { "name": "rate_limit_429", "label": "Rate-limit (HTTP 429)", "kind": "keyword", "pattern": "\\b429\\b|rate.?limit" },
+      { "name": "doc_id", "label": "Document", "kind": "correlation", "pattern": "doc[_-]?id[:=]\\s*([\\w-]+)" }
+    ]
+  }
+}
+```
+
+- `kind: "keyword"` rules bucket every ticket whose text matches `pattern` into
+  one shared group named by `label`.
+- `kind: "correlation"` rules require a single capture group; whatever text it
+  captures becomes the bucket key, so tickets are grouped by the *value* they
+  share (a document id, a customer id, …) rather than by the rule itself.
+
+This is how a project like Inti — whose Ticket Groups feature inspired this
+report and clusters on a tagging-audit-code vocabulary and document
+fingerprints — can express that exact behavior as a config file on top of a
+domain-agnostic engine, without AgentLoops core ever needing to know what an
+"audit code" or a "document fingerprint" is.
+
+## History context (prior-art hints)
+
+When filing a ticket, a reporter (human or agent) often already has an opinion
+about whether it's new or connects to something else. `agentloop create` (and
+`agentloop_create` over MCP) accepts an optional `--prior-art-hint` capturing
+that self-assessment:
+
+| Hint | Meaning |
+| --- | --- |
+| `new` | "As far as I know, this hasn't come up before." |
+| `previously_ticketed` | "I think this (or something very like it) has been reported." |
+| `existing_pattern` | "I think this belongs to a known recurring problem." |
+| `adjacent_issues` | "I think this is related to other open work, even if not identical." |
+
+The hint always round-trips onto the created ticket (`ticket.priorArtHint`).
+But AgentLoops doesn't stop at storing a label nobody acts on: whenever the
+hint is anything other than `new`, ticket creation **automatically runs a
+prior-art check** (the same scoring `agentloop related` uses — family, Pattern,
+shared tags, kind, and title/summary text-overlap) against the brand-new
+ticket and surfaces the strongest candidates immediately:
+
+```bash
+$ agentloop create --title "Export still hangs on long PDFs again" \
+    --summary "A user reports the export pipeline hangs again on very long PDF reports under load" \
+    --family export_pipeline --kind bug --source user_report \
+    --prior-art-hint previously_ticketed
+
+Created ISSUE-000002 (USER-000002)
+kind=bug family=export_pipeline status=triaged
+title: Export still hangs on long PDFs again
+Pattern: PATTERN-000001
+Possible prior art (priorArtHint=previously_ticketed):
+  ISSUE-000001  score=8.8  Export hangs on long PDFs  [family, pattern, kind, text:0.45]
+```
+
+Over MCP, `agentloop_create` returns the same candidates as a
+`priorArtSuggestions` array on the write-result envelope (only present when
+the hint warrants a check and candidates are found), so an agent can confirm
+or rule out a match — "did you mean ISSUE-000042?" — right at intake instead
+of discovering the duplicate during triage. `--json` on the CLI surfaces the
+same `{ ticket, priorArtSuggestions }` shape.
 
 ## GitHub Issues sync (optional)
 

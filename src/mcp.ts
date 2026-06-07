@@ -5,11 +5,13 @@ import { AgentLoopStore } from "./store";
 import { StateBackend } from "./backend";
 import { buildHandoffPrompt } from "./handoff";
 import { resolveGithubTarget } from "./github";
+import { RelatedTicket, shouldSurfacePriorArt } from "./prior-art";
 import {
   Confidence,
   GuardStatus,
   NoteType,
   Pattern,
+  PriorArtHint,
   ProjectConfig,
   Severity,
   Ticket,
@@ -141,7 +143,24 @@ export type WriteAction = "created" | "noted" | "workflow" | "resolved" | "guard
 export interface WriteResult extends Envelope {
   action: WriteAction;
   ticket: Ticket;
+  /**
+   * Populated only on `created`, and only when `priorArtHint` suggests the
+   * reporter believes prior art may already exist ("previously ticketed" /
+   * "existing pattern" / "adjacent issues"): candidates from an auto-run
+   * `relatedTickets` check against the new ticket, so the reporter/agent can
+   * confirm or rule out a match ("did you mean ISSUE-000042?") right at
+   * intake — the AgentLoops-native enhancement over a hint that's merely
+   * stored for later human review.
+   */
+  priorArtSuggestions?: RelatedTicket[];
 }
+
+export const PRIOR_ART_HINTS = [
+  "new",
+  "previously_ticketed",
+  "existing_pattern",
+  "adjacent_issues",
+] as const satisfies readonly PriorArtHint[];
 
 export const SEVERITIES = ["low", "medium", "high", "critical"] as const satisfies readonly Severity[];
 export const CONFIDENCES = ["low", "medium", "high"] as const satisfies readonly Confidence[];
@@ -178,6 +197,7 @@ export async function createTicketTool(
     confidence?: Confidence;
     tags?: string[];
     handoff?: string;
+    priorArtHint?: PriorArtHint;
   },
 ): Promise<WriteResult> {
   const config = store.getConfig();
@@ -196,8 +216,23 @@ export async function createTicketTool(
     confidence: args.confidence ?? "medium",
     tags: args.tags ?? [],
     handoffText: args.handoff,
+    priorArtHint: args.priorArtHint,
   });
-  return { ...envelope(), action: "created", ticket };
+
+  let priorArtSuggestions: RelatedTicket[] | undefined;
+  if (shouldSurfacePriorArt(args.priorArtHint)) {
+    const related = await store.related(ticket.id, { limit: 5 });
+    if (related.related.length > 0) {
+      priorArtSuggestions = related.related;
+    }
+  }
+
+  return {
+    ...envelope(),
+    action: "created",
+    ticket,
+    ...(priorArtSuggestions ? { priorArtSuggestions } : {}),
+  };
 }
 
 export async function noteTool(
@@ -488,6 +523,28 @@ export function createMcpServer(
   );
 
   server.registerTool(
+    "agentloop_ticket_groups",
+    {
+      title: "Ticket Groups (triage clusters)",
+      description:
+        "Read-only report clustering open work into broad triage Groups — 'worth reviewing together,' explicitly not resolution objects — distinct from curated Patterns. Built-in bases are family, shared tags, and auto-detected recurring keywords; project-specific clustering vocabulary can be added via the ticketGroups.customRules config (e.g. a known error-code list or an embedded correlation key) without this tool needing to understand the domain. Each group also surfaces 'candidate splits': narrower sub-clusters worth reviewing as their own Group/Pattern before assuming the whole cluster shares one cause.",
+      inputSchema: {
+        family: z.string().optional(),
+        minSize: z.number().int().positive().optional(),
+        limit: z.number().int().positive().optional(),
+      },
+      annotations: readOnly,
+    },
+    async (args) => {
+      try {
+        return ok(await store.ticketGroups(args));
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  server.registerTool(
     "agentloop_search_knowledge",
     {
       title: "Search resolution knowledge",
@@ -601,7 +658,11 @@ function registerWriteTools(server: McpServer, store: AgentLoopStore): void {
     {
       title: "Create ticket",
       description:
-        "Create a ticket. `summary` is required; `kind`/`family`/`source` default from config (source defaults to 'agent').",
+        "Create a ticket. `summary` is required; `kind`/`family`/`source` default from config (source defaults to 'agent'). " +
+        "Optional `priorArtHint` records the reporter's intake-time self-assessment of whether this looks new or " +
+        "connects to existing work ('History context'); when it's 'previously_ticketed', 'existing_pattern', or " +
+        "'adjacent_issues', AgentLoops auto-runs a prior-art check against the new ticket and returns candidates " +
+        "as `priorArtSuggestions` so you can confirm or rule out a match right away.",
       inputSchema: {
         summary: z.string().min(1),
         title: z.string().optional(),
@@ -612,6 +673,7 @@ function registerWriteTools(server: McpServer, store: AgentLoopStore): void {
         confidence: z.enum(CONFIDENCES).optional(),
         tags: z.array(z.string()).optional(),
         handoff: z.string().optional(),
+        priorArtHint: z.enum(PRIOR_ART_HINTS).optional(),
       },
       annotations: write,
     },

@@ -67,6 +67,20 @@ export type {
   NearDuplicatePair,
   NearDuplicateMember,
 } from "./near-duplicates";
+export {
+  ticketGroupsReport,
+  TICKET_GROUPS_SCHEMA_VERSION,
+  DEFAULT_TICKET_GROUP_MIN_SIZE,
+  DEFAULT_TICKET_GROUP_LIMIT,
+} from "./ticket-groups";
+export type {
+  TicketGroupOptions,
+  TicketGroupsReport,
+  TicketGroup,
+  TicketGroupMember,
+  TicketGroupCandidateSplit,
+  TicketGroupBasisKind,
+} from "./ticket-groups";
 export { resolutionKnowledge, knowledgeGaps, KNOWLEDGE_SCHEMA_VERSION } from "./knowledge";
 export type {
   KnowledgeEntry,
@@ -79,8 +93,10 @@ export type {
 } from "./knowledge";
 export {
   relatedTickets,
+  shouldSurfacePriorArt,
   PRIOR_ART_SCHEMA_VERSION,
   DEFAULT_PRIOR_ART_WEIGHTS,
+  PRIOR_ART_HINT_AUTO_SURFACE,
 } from "./prior-art";
 export type {
   PriorArtWeights,

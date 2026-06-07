@@ -121,6 +121,7 @@ test("MCP server exposes the read-only tools over the protocol", async () => {
           "agentloop_search_knowledge",
           "agentloop_show",
           "agentloop_summary",
+          "agentloop_ticket_groups",
           "agentloop_workflow_audit",
         ],
       );
@@ -179,6 +180,46 @@ test("createTicketTool appends a ticket with agent source and config defaults", 
   });
 });
 
+test("createTicketTool persists priorArtHint and auto-surfaces prior-art candidates when it suggests they may exist", async () => {
+  await withSeededStore(async (store) => {
+    // No hint (or "new"): the field round-trips, but no auto-check runs —
+    // the reporter is telling us they believe this is novel.
+    const fresh = await createTicketTool(store, {
+      summary: "Totally novel problem nobody has reported",
+      kind: "bug",
+      family: "export_pipeline",
+      priorArtHint: "new",
+    });
+    assert.equal(fresh.ticket.priorArtHint, "new");
+    assert.equal(fresh.priorArtSuggestions, undefined);
+
+    const noHint = await createTicketTool(store, {
+      summary: "Export pipeline drops trailing pages under load",
+      kind: "bug",
+      family: "export_pipeline",
+    });
+    assert.equal(noHint.ticket.priorArtHint, undefined);
+    assert.equal(noHint.priorArtSuggestions, undefined);
+
+    // "previously_ticketed"/"existing_pattern"/"adjacent_issues": the reporter
+    // believes this connects to prior work, so AgentLoops auto-runs the
+    // prior-art check and surfaces candidates right at intake — the
+    // AgentLoops-native enhancement over a hint that's merely stored.
+    const flagged = await createTicketTool(store, {
+      summary: "Export still fails for very long reports under load",
+      kind: "bug",
+      family: "export_pipeline",
+      priorArtHint: "previously_ticketed",
+    });
+    assert.equal(flagged.ticket.priorArtHint, "previously_ticketed");
+    assert.ok(flagged.priorArtSuggestions && flagged.priorArtSuggestions.length > 0);
+    // The seeded export_pipeline tickets (sharing family + overlapping text)
+    // are exactly the kind of candidates a "did you mean...?" check should surface.
+    assert.ok(flagged.priorArtSuggestions!.some((candidate) => candidate.alias === "ISSUE-000001"));
+    assert.ok(flagged.priorArtSuggestions!.every((candidate) => candidate.score > 0));
+  });
+});
+
 test("noteTool / workflowTool / guardTool mutate a ticket", async () => {
   await withSeededStore(async (store) => {
     const noted = await noteTool(store, { id: "USER-000002", body: "user pinged again" });
@@ -230,19 +271,19 @@ test("write tools are gated: absent by default, present and usable with allowWri
     const roClient = await connectedClient(ro);
     try {
       const names = (await roClient.listTools()).tools.map((t) => t.name);
-      assert.equal(names.length, 12); // 12 read-only tools
+      assert.equal(names.length, 13); // 13 read-only tools
       assert.ok(!names.some((n) => n.startsWith("agentloop_create")));
     } finally {
       await roClient.close();
       await ro.close();
     }
 
-    // Write-enabled server: 12 read + 8 write tools; a create round-trips through show.
+    // Write-enabled server: 13 read + 8 write tools; a create round-trips through show.
     const rw = createMcpServer(store, { allowWrites: true });
     const rwClient = await connectedClient(rw);
     try {
       const tools = (await rwClient.listTools()).tools;
-      assert.equal(tools.length, 20);
+      assert.equal(tools.length, 21);
       const createTool = tools.find((t) => t.name === "agentloop_create");
       assert.equal(createTool?.annotations?.readOnlyHint, false);
 

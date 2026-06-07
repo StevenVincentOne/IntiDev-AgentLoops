@@ -30,6 +30,7 @@ import {
   WorkflowRepairResult,
 } from "./workflow-repair";
 import { nearDuplicateReport, NearDuplicateOptions, NearDuplicateReport } from "./near-duplicates";
+import { ticketGroupsReport, TicketGroupOptions, TicketGroupsReport } from "./ticket-groups";
 import {
   resolutionKnowledge,
   knowledgeGaps,
@@ -131,7 +132,7 @@ export class AgentLoopStore {
 
   async createTicket(input: CreateTicketInput): Promise<Ticket> {
     const state = await this.ensureInitialized();
-    const { title, summary, family, kind, source, severity, confidence, tags = [], handoffText } = input;
+    const { title, summary, family, kind, source, severity, confidence, tags = [], handoffText, priorArtHint } = input;
     const missing = requiredFields(this.config, kind).filter((field) => !input[field as keyof CreateTicketInput]);
     if (missing.length > 0) {
       throw new Error(`Missing required fields for ${kind}: ${missing.join(", ")}`);
@@ -158,6 +159,7 @@ export class AgentLoopStore {
       tags: Array.from(new Set(tags)),
       notes: [],
       handoffText: handoffText ? this.redact(handoffText, ctx("handoffText")) : undefined,
+      priorArtHint,
       reproducible: true,
     };
     ticket.patternId = this.attachPattern(state, family, ticket.id);
@@ -441,6 +443,17 @@ export class AgentLoopStore {
   async nearDuplicates(options: NearDuplicateOptions = {}): Promise<NearDuplicateReport> {
     const state = await this.ensureInitialized();
     return nearDuplicateReport(state.tickets, options);
+  }
+
+  async ticketGroups(options: TicketGroupOptions = {}): Promise<TicketGroupsReport> {
+    const state = await this.ensureInitialized();
+    const overrides = this.config.ticketGroups ?? {};
+    return ticketGroupsReport(state.tickets, {
+      family: options.family,
+      minSize: options.minSize ?? overrides.minSize,
+      limit: options.limit ?? overrides.limit,
+      customRules: options.customRules ?? overrides.customRules,
+    });
   }
 
   async searchKnowledge(

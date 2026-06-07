@@ -1,6 +1,28 @@
-import { Ticket } from "./types";
+import { PriorArtHint, Ticket } from "./types";
 
 export const PRIOR_ART_SCHEMA_VERSION = 1 as const;
+
+/**
+ * `priorArtHint` values that suggest the reporter believes prior art may
+ * already exist for this ticket ("Previously ticketed" / "Existing pattern" /
+ * "Adjacent to other issues" — Inti's "History context" intake labels). When
+ * a ticket is created with one of these hints, AgentLoops auto-runs
+ * `relatedTickets` against it and surfaces the candidates back to the
+ * reporter/agent — turning a self-reported belief into an actionable check
+ * ("did you mean ISSUE-000042?") rather than a label nobody acts on. This is
+ * the AgentLoops-native enhancement over Inti's source feature, which only
+ * stored the hint for later human review.
+ */
+export const PRIOR_ART_HINT_AUTO_SURFACE: ReadonlySet<PriorArtHint> = new Set([
+  "previously_ticketed",
+  "existing_pattern",
+  "adjacent_issues",
+]);
+
+/** Should creating a ticket with this hint auto-trigger a prior-art check? */
+export function shouldSurfacePriorArt(hint: PriorArtHint | undefined): boolean {
+  return hint != null && PRIOR_ART_HINT_AUTO_SURFACE.has(hint);
+}
 
 /**
  * Weights for the deterministic relatedness signals. Fixed defaults live in core

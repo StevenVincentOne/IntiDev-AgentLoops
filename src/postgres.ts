@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   handoff_text text,
   guard_status text,
   guard_summary text,
+  prior_art_hint text,
   pattern_id text,
   verification text,
   reproducible boolean,
@@ -125,6 +126,7 @@ interface TicketRow {
   handoffText: string | null;
   guardStatus: string | null;
   guardSummary: string | null;
+  priorArtHint: string | null;
   patternId: string | null;
   verification: string | null;
   reproducible: boolean | null;
@@ -258,6 +260,7 @@ export function serializeState(state: LoopState): RelationalRows {
       handoffText: t.handoffText ?? null,
       guardStatus: t.guardStatus ?? null,
       guardSummary: t.guardSummary ?? null,
+      priorArtHint: t.priorArtHint ?? null,
       patternId: t.patternId ?? null,
       verification: t.verification ?? null,
       reproducible: t.reproducible ?? null,
@@ -320,6 +323,7 @@ export function deserializeRows(rows: RelationalRows): LoopState {
     if (row.handoffText != null) ticket.handoffText = row.handoffText;
     if (row.guardStatus != null) ticket.guardStatus = row.guardStatus as Ticket["guardStatus"];
     if (row.guardSummary != null) ticket.guardSummary = row.guardSummary;
+    if (row.priorArtHint != null) ticket.priorArtHint = row.priorArtHint as Ticket["priorArtHint"];
     if (row.patternId != null) ticket.patternId = row.patternId;
     if (row.verification != null) ticket.verification = row.verification;
     if (row.reproducible != null) ticket.reproducible = row.reproducible;
@@ -478,6 +482,7 @@ export class PostgresStateBackend implements StateBackend {
           handoffText: (r.handoff_text as string | null) ?? null,
           guardStatus: (r.guard_status as string | null) ?? null,
           guardSummary: (r.guard_summary as string | null) ?? null,
+          priorArtHint: (r.prior_art_hint as string | null) ?? null,
           patternId: (r.pattern_id as string | null) ?? null,
           verification: (r.verification as string | null) ?? null,
           reproducible: (r.reproducible as boolean | null) ?? null,
@@ -535,9 +540,9 @@ export class PostgresStateBackend implements StateBackend {
         }
         for (const t of rows.tickets) {
           await c.query(
-            `INSERT INTO tickets (id, family, kind, source, title, summary, severity, confidence, status, created_at, updated_at, started_at, resolved_at, handoff_text, guard_status, guard_summary, pattern_id, verification, reproducible, resolution_summary, github_issue_url, github_issue_number, github_last_synced_at, github_last_synced_comment_id)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,
-            [t.id, t.family, t.kind, t.source, t.title, t.summary, t.severity, t.confidence, t.status, t.createdAt, t.updatedAt, t.startedAt, t.resolvedAt, t.handoffText, t.guardStatus, t.guardSummary, t.patternId, t.verification, t.reproducible, t.resolutionSummary, t.githubIssueUrl, t.githubIssueNumber, t.githubLastSyncedAt, t.githubLastSyncedCommentId],
+            `INSERT INTO tickets (id, family, kind, source, title, summary, severity, confidence, status, created_at, updated_at, started_at, resolved_at, handoff_text, guard_status, guard_summary, prior_art_hint, pattern_id, verification, reproducible, resolution_summary, github_issue_url, github_issue_number, github_last_synced_at, github_last_synced_comment_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`,
+            [t.id, t.family, t.kind, t.source, t.title, t.summary, t.severity, t.confidence, t.status, t.createdAt, t.updatedAt, t.startedAt, t.resolvedAt, t.handoffText, t.guardStatus, t.guardSummary, t.priorArtHint, t.patternId, t.verification, t.reproducible, t.resolutionSummary, t.githubIssueUrl, t.githubIssueNumber, t.githubLastSyncedAt, t.githubLastSyncedCommentId],
           );
         }
         for (const a of rows.aliases) {
