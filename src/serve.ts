@@ -22,6 +22,7 @@ async function handle(
     }
     if (url === "/api/guard-gaps") return sendJson(res, await store.guardGaps({}));
     if (url === "/api/workflow-audit") return sendJson(res, await store.workflowAudit({}));
+    if (url === "/api/near-duplicates") return sendJson(res, await store.nearDuplicates({}));
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(renderDashboard(await gatherDashboardData(store)));
   } catch (error) {

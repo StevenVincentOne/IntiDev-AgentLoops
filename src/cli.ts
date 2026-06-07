@@ -34,6 +34,7 @@ const COMMANDS = [
   "convergence",
   "guard-gaps",
   "workflow-audit",
+  "near-duplicates",
   "knowledge",
   "knowledge-gaps",
   "related",
@@ -110,6 +111,8 @@ function printHelp() {
   printLine("  convergence [--family ..] [--min-sources N] [--all]  patterns spanning multiple sources");
   printLine("  guard-gaps [--family ..] [--include-waived] [--all-kinds]  resolved tickets missing a guard");
   printLine("  workflow-audit [--family ..]    patterns whose status disagrees with their linked tickets");
+  printLine("  near-duplicates [--family ..] [--min-overlap 0.5] [--include-resolved] [--limit 20]");
+  printLine("                                  open tickets whose title/summary look like the same problem");
   printLine("  knowledge [--family ..] [--kind ..] [--query ..]  search resolved-ticket fix knowledge");
   printLine("  knowledge-gaps [--family ..] [--severity ..] [--source ..]  resolved tickets lacking reusable knowledge");
   printLine("  related <id> [--min-score N] [--limit N]  prior-art: tickets related to <id>");
@@ -383,6 +386,16 @@ async function cmdWorkflowAudit(options: ArgMap) {
   printJson(await store.workflowAudit({ family }));
 }
 
+async function cmdNearDuplicates(options: ArgMap) {
+  const { store } = await ensureConfig();
+  const family = typeof options.family === "string" ? options.family : undefined;
+  const minTextOverlap =
+    typeof options["min-overlap"] === "string" ? Number(options["min-overlap"]) : undefined;
+  const includeResolved = options["include-resolved"] === true;
+  const limit = typeof options.limit === "string" ? Number(options.limit) : undefined;
+  printJson(await store.nearDuplicates({ family, minTextOverlap, includeResolved, limit }));
+}
+
 async function cmdKnowledge(options: ArgMap) {
   const { store } = await ensureConfig();
   const str = (key: string) => (typeof options[key] === "string" ? (options[key] as string) : undefined);
@@ -540,6 +553,9 @@ async function main() {
       break;
     case "workflow-audit":
       await cmdWorkflowAudit(options);
+      break;
+    case "near-duplicates":
+      await cmdNearDuplicates(options);
       break;
     case "knowledge":
       await cmdKnowledge(options);

@@ -92,6 +92,7 @@ state fixture; run it with `npm test`.
 - `agentloop convergence` report patterns whose tickets span multiple sources
 - `agentloop guard-gaps` report resolved tickets missing a regression guard
 - `agentloop workflow-audit` report patterns whose status disagrees with their linked tickets
+- `agentloop near-duplicates` report open tickets whose title/summary look like the same problem
 - `agentloop knowledge` search how prior resolved tickets were fixed
 - `agentloop knowledge-gaps` report resolved tickets lacking reusable knowledge
 - `agentloop related <id>` find prior-art tickets related to one ticket
@@ -126,6 +127,7 @@ Read-only tools (annotated `readOnlyHint`):
 | `agentloop_convergence` | patterns whose tickets span multiple sources |
 | `agentloop_guard_gaps` | resolved tickets missing a regression guard |
 | `agentloop_workflow_audit` | patterns whose status disagrees with their linked tickets |
+| `agentloop_near_duplicates` | open tickets whose title/summary look like the same problem |
 | `agentloop_search_knowledge` | search how prior resolved tickets were fixed |
 | `agentloop_knowledge_gaps` | resolved tickets lacking reusable knowledge |
 | `agentloop_related` | prior-art: tickets related to a given ticket |

@@ -115,6 +115,7 @@ test("MCP server exposes the read-only tools over the protocol", async () => {
           "agentloop_handoff",
           "agentloop_knowledge_gaps",
           "agentloop_list",
+          "agentloop_near_duplicates",
           "agentloop_related",
           "agentloop_search_knowledge",
           "agentloop_show",
@@ -228,19 +229,19 @@ test("write tools are gated: absent by default, present and usable with allowWri
     const roClient = await connectedClient(ro);
     try {
       const names = (await roClient.listTools()).tools.map((t) => t.name);
-      assert.equal(names.length, 10); // 10 read-only tools
+      assert.equal(names.length, 11); // 11 read-only tools
       assert.ok(!names.some((n) => n.startsWith("agentloop_create")));
     } finally {
       await roClient.close();
       await ro.close();
     }
 
-    // Write-enabled server: 10 read + 6 write tools; a create round-trips through show.
+    // Write-enabled server: 11 read + 6 write tools; a create round-trips through show.
     const rw = createMcpServer(store, { allowWrites: true });
     const rwClient = await connectedClient(rw);
     try {
       const tools = (await rwClient.listTools()).tools;
-      assert.equal(tools.length, 16);
+      assert.equal(tools.length, 17);
       const createTool = tools.find((t) => t.name === "agentloop_create");
       assert.equal(createTool?.annotations?.readOnlyHint, false);
 

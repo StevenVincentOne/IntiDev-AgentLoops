@@ -465,6 +465,29 @@ export function createMcpServer(
   );
 
   server.registerTool(
+    "agentloop_near_duplicates",
+    {
+      title: "Near-duplicate ticket audit",
+      description:
+        "Read-only report of ticket pairs whose titles/summaries overlap heavily — a likely sign the same problem was reported twice before it converged into a shared pattern. Scoped to open work (triaged/active/reopened/deferred) by default.",
+      inputSchema: {
+        family: z.string().optional(),
+        minTextOverlap: z.number().optional(),
+        includeResolved: z.boolean().optional(),
+        limit: z.number().optional(),
+      },
+      annotations: readOnly,
+    },
+    async (args) => {
+      try {
+        return ok(await store.nearDuplicates(args));
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  server.registerTool(
     "agentloop_search_knowledge",
     {
       title: "Search resolution knowledge",

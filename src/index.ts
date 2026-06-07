@@ -46,6 +46,18 @@ export type {
   WorkflowAuditPatternEntry,
   WorkflowAuditTicketRef,
 } from "./workflow-audit";
+export {
+  nearDuplicateReport,
+  NEAR_DUPLICATE_SCHEMA_VERSION,
+  DEFAULT_NEAR_DUPLICATE_MIN_OVERLAP,
+  DEFAULT_NEAR_DUPLICATE_LIMIT,
+} from "./near-duplicates";
+export type {
+  NearDuplicateOptions,
+  NearDuplicateReport,
+  NearDuplicatePair,
+  NearDuplicateMember,
+} from "./near-duplicates";
 export { resolutionKnowledge, knowledgeGaps, KNOWLEDGE_SCHEMA_VERSION } from "./knowledge";
 export type {
   KnowledgeEntry,

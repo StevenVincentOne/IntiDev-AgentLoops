@@ -60,7 +60,12 @@ export interface PriorArtReport {
 
 const STOP_TOKEN_MIN_LENGTH = 3;
 
-function tokenize(text: string): Set<string> {
+/**
+ * Lowercases, splits on non-alphanumeric runs, and drops short stop-tokens.
+ * Exported so other deterministic-similarity reports (e.g. near-duplicate
+ * detection) can reuse the exact same tokenization without re-deriving it.
+ */
+export function tokenize(text: string): Set<string> {
   return new Set(
     text
       .toLowerCase()
@@ -69,7 +74,8 @@ function tokenize(text: string): Set<string> {
   );
 }
 
-function jaccard(a: Set<string>, b: Set<string>): number {
+/** Set-intersection / set-union similarity, 0..1. Exported for reuse (see `tokenize`). */
+export function jaccard(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 || b.size === 0) return 0;
   let intersection = 0;
   for (const token of a) if (b.has(token)) intersection += 1;

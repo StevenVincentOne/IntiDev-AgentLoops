@@ -23,6 +23,7 @@ import {
 } from "./convergence";
 import { guardGapReport, GuardGapOptions, GuardGapReport } from "./guards";
 import { workflowAuditReport, WorkflowAuditOptions, WorkflowAuditReport } from "./workflow-audit";
+import { nearDuplicateReport, NearDuplicateOptions, NearDuplicateReport } from "./near-duplicates";
 import {
   resolutionKnowledge,
   knowledgeGaps,
@@ -382,6 +383,11 @@ export class AgentLoopStore {
   async workflowAudit(options: WorkflowAuditOptions = {}): Promise<WorkflowAuditReport> {
     const state = await this.ensureInitialized();
     return workflowAuditReport(state.tickets, state.patterns, options);
+  }
+
+  async nearDuplicates(options: NearDuplicateOptions = {}): Promise<NearDuplicateReport> {
+    const state = await this.ensureInitialized();
+    return nearDuplicateReport(state.tickets, options);
   }
 
   async searchKnowledge(
