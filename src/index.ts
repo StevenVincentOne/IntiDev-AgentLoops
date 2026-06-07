@@ -46,6 +46,15 @@ export type {
   WorkflowAuditPatternEntry,
   WorkflowAuditTicketRef,
 } from "./workflow-audit";
+export { workflowRepairPlan, WORKFLOW_REPAIR_SCHEMA_VERSION } from "./workflow-repair";
+export type {
+  WorkflowRepairOptions,
+  WorkflowRepairPlan,
+  WorkflowRepairResult,
+  WorkflowRepairAction,
+  WorkflowRepairTicketRef,
+  WorkflowRepairReason,
+} from "./workflow-repair";
 export {
   nearDuplicateReport,
   NEAR_DUPLICATE_SCHEMA_VERSION,

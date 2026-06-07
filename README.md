@@ -92,6 +92,7 @@ state fixture; run it with `npm test`.
 - `agentloop convergence` report patterns whose tickets span multiple sources
 - `agentloop guard-gaps` report resolved tickets missing a regression guard
 - `agentloop workflow-audit` report patterns whose status disagrees with their linked tickets
+- `agentloop workflow-repair [--dry-run]` fix that drift: reopen/resolve patterns to match their tickets
 - `agentloop near-duplicates` report open tickets whose title/summary look like the same problem
 - `agentloop knowledge` search how prior resolved tickets were fixed
 - `agentloop knowledge-gaps` report resolved tickets lacking reusable knowledge
@@ -145,6 +146,7 @@ Write tools (only registered with `--write`):
 | `agentloop_resolve` | resolve with a summary, optional verification + guard |
 | `agentloop_guard` | record a regression-guard decision |
 | `agentloop_prior_art_refresh` | recompute + persist the prior-art graph (reinforce / decay / prune edges) |
+| `agentloop_workflow_repair` | fix `agentloop_workflow_audit` drift by reopening/resolving patterns to match their tickets (pass `dryRun: true` to preview without mutating) |
 
 Each result is a JSON envelope with `schemaVersion` and `generatedAt`. The server
 reads/writes state from the `.agentloops/state.json` in its working directory, so

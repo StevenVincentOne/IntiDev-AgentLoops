@@ -23,6 +23,12 @@ import {
 } from "./convergence";
 import { guardGapReport, GuardGapOptions, GuardGapReport } from "./guards";
 import { workflowAuditReport, WorkflowAuditOptions, WorkflowAuditReport } from "./workflow-audit";
+import {
+  workflowRepairPlan,
+  WorkflowRepairOptions,
+  WorkflowRepairPlan,
+  WorkflowRepairResult,
+} from "./workflow-repair";
 import { nearDuplicateReport, NearDuplicateOptions, NearDuplicateReport } from "./near-duplicates";
 import {
   resolutionKnowledge,
@@ -400,6 +406,36 @@ export class AgentLoopStore {
   async workflowAudit(options: WorkflowAuditOptions = {}): Promise<WorkflowAuditReport> {
     const state = await this.ensureInitialized();
     return workflowAuditReport(state.tickets, state.patterns, options);
+  }
+
+  /**
+   * Plan — and, unless `dryRun`, apply — the corrective Pattern-status
+   * transitions for the drift `workflowAudit` surfaces (write when applying;
+   * read-only preview when `dryRun` is set). See `workflow-repair.ts` for the
+   * full rule: resolved patterns with active linked tickets reopen, and
+   * open/active/reopened patterns whose linked tickets are all closed out
+   * resolve. Mirrors `refreshPriorArtGraph`'s plan-then-persist shape.
+   */
+  async repairWorkflow(options: WorkflowRepairOptions & { dryRun?: boolean } = {}): Promise<WorkflowRepairResult> {
+    const state = await this.ensureInitialized();
+    const plan: WorkflowRepairPlan = workflowRepairPlan(state.tickets, state.patterns, { family: options.family });
+    if (options.dryRun) {
+      return { ...plan, applied: false };
+    }
+
+    if (plan.actions.length > 0) {
+      const byId = new Map(state.patterns.map((pattern) => [pattern.id, pattern]));
+      const stamp = nowIso();
+      for (const action of plan.actions) {
+        const pattern = byId.get(action.patternId);
+        if (!pattern) continue;
+        pattern.status = action.toStatus;
+        pattern.updatedAt = stamp;
+      }
+      state.updatedAt = stamp;
+      await this.persist();
+    }
+    return { ...plan, applied: true };
   }
 
   async nearDuplicates(options: NearDuplicateOptions = {}): Promise<NearDuplicateReport> {

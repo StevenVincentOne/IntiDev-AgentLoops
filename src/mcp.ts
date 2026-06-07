@@ -758,6 +758,27 @@ function registerWriteTools(server: McpServer, store: AgentLoopStore): void {
       }
     },
   );
+
+  server.registerTool(
+    "agentloop_workflow_repair",
+    {
+      title: "Repair pattern/ticket workflow drift",
+      description:
+        "Fix the drift `agentloop_workflow_audit` surfaces by flipping Pattern status to agree with its linked tickets: resolved patterns with active (or reopened) linked tickets reopen, and open/active/reopened patterns whose linked tickets are all closed out resolve. Pass `dryRun: true` to preview the plan without mutating anything; otherwise mutates and saves ledger state.",
+      inputSchema: {
+        family: z.string().optional(),
+        dryRun: z.boolean().optional(),
+      },
+      annotations: write,
+    },
+    async (args) => {
+      try {
+        return ok(await store.repairWorkflow({ family: args.family, dryRun: args.dryRun }));
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
 }
 
 /**

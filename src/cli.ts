@@ -34,6 +34,7 @@ const COMMANDS = [
   "convergence",
   "guard-gaps",
   "workflow-audit",
+  "workflow-repair",
   "near-duplicates",
   "knowledge",
   "knowledge-gaps",
@@ -113,6 +114,8 @@ function printHelp() {
   printLine("  convergence [--family ..] [--min-sources N] [--all]  patterns spanning multiple sources");
   printLine("  guard-gaps [--family ..] [--include-waived] [--all-kinds]  resolved tickets missing a guard");
   printLine("  workflow-audit [--family ..]    patterns whose status disagrees with their linked tickets");
+  printLine("  workflow-repair [--family ..] [--dry-run]");
+  printLine("                                  fix that drift: reopen/resolve patterns to match their tickets (write unless --dry-run)");
   printLine("  near-duplicates [--family ..] [--min-overlap 0.5] [--include-resolved] [--limit 20]");
   printLine("                                  open tickets whose title/summary look like the same problem");
   printLine("  knowledge [--family ..] [--kind ..] [--query ..]  search resolved-ticket fix knowledge");
@@ -392,6 +395,13 @@ async function cmdWorkflowAudit(options: ArgMap) {
   printJson(await store.workflowAudit({ family }));
 }
 
+async function cmdWorkflowRepair(options: ArgMap) {
+  const { store } = await ensureConfig();
+  const family = typeof options.family === "string" ? options.family : undefined;
+  const dryRun = options["dry-run"] === true;
+  printJson(await store.repairWorkflow({ family, dryRun }));
+}
+
 async function cmdNearDuplicates(options: ArgMap) {
   const { store } = await ensureConfig();
   const family = typeof options.family === "string" ? options.family : undefined;
@@ -580,6 +590,9 @@ async function main() {
       break;
     case "workflow-audit":
       await cmdWorkflowAudit(options);
+      break;
+    case "workflow-repair":
+      await cmdWorkflowRepair(options);
       break;
     case "near-duplicates":
       await cmdNearDuplicates(options);
