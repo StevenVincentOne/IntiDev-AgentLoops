@@ -506,15 +506,33 @@ Extract a reference dashboard:
 - host-provided auth shell
 - adapter-provided API client
 
-### Phase 6: Inti Migration
+### Phase 6: Selective Two-Way Porting (revised 2026-06-07; supersedes "Inti Migration")
 
-Switch Inti to consume the extracted packages:
+**Decision**: do *not* switch Inti to consume the extracted packages as a runtime dependency.
+This plan was drafted while AgentLoops was still a scaffold being pulled out of Inti; it has
+since become a published, independently-versioned product (`@stevenvincentone/intidev-agentloops`,
+`@stevenvincentone/intidev-agentloops-react`) with its own release cadence and generic
+abstractions. Forcing Inti — a production app with app-specific needs (Admin Portal integration,
+auth, `issue_*` schema, established `ISSUE-...`/`DEV-...`/`USER-...` ids) — to adopt it as a
+dependency would mean either compromising AgentLoops' generality to fit Inti, or wrapping/adapting
+around it in Inti, for uncertain payoff and real migration risk to a feature that already works.
 
-- keep existing data
-- migrate or adapt `issue_*` tables
-- preserve `ISSUE-...`, `DEV-...`, and `USER-...` ids
-- keep Admin Portal behavior stable
-- retire duplicated in-repo service code only after parity verification
+Instead, treat the two Tickets implementations as **independently-specialized siblings** and port
+proven improvements selectively in both directions:
+
+- AgentLoops → inti-docs: pull over generalizable improvements made during/after extraction
+  (e.g. redaction hooks, prior-art scoring refinements, GitHub Issues sync, guard-gap detection)
+  where they'd benefit Inti's production ledger.
+- inti-docs → AgentLoops: pull over generalizable improvements made to Inti's Tickets since the
+  extraction snapshot, rewritten as pure modules with no Inti imports (per the Phase 1 extraction
+  principles).
+- Accept the tradeoff: this means **permanent duplication** between the two codebases (two things
+  to maintain, no single source of truth, occasional drift) — in exchange for each staying
+  optimized for its actual context instead of compromising to share code.
+
+Tracking: the two-way port-tracking work lives in `inti-docs` as **DEV-001142** — keep findings
+and decisions there so they don't get lost. "Retiring duplicated in-repo service code" is
+explicitly **off the table** under this revision; do not attempt it without a fresh decision.
 
 ## Release Scope
 
