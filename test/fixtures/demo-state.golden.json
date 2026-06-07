@@ -5,6 +5,7 @@
   "updatedAt": "<timestamp>",
   "nextTicketSeq": 3,
   "nextPatternSeq": 1,
+  "nextPriorArtEdgeSeq": 0,
   "tickets": [
     {
       "id": "ISSUE-000001",
@@ -90,5 +91,6 @@
         "ISSUE-000003"
       ]
     }
-  ]
+  ],
+  "priorArtEdges": []
 }

@@ -1,4 +1,4 @@
-import { LoopState, Pattern, Ticket } from "./types";
+import { LoopState, Pattern, PriorArtEdge, Ticket } from "./types";
 import { StateBackend } from "./backend";
 
 /**
@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS loop_meta (
   created_at text NOT NULL,
   updated_at text NOT NULL,
   next_ticket_seq integer NOT NULL,
-  next_pattern_seq integer NOT NULL
+  next_pattern_seq integer NOT NULL,
+  next_prior_art_edge_seq integer NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS ticket_patterns (
   id text PRIMARY KEY,
@@ -62,10 +63,23 @@ CREATE TABLE IF NOT EXISTS ticket_notes (
   ord integer NOT NULL
 );
 CREATE TABLE IF NOT EXISTS ticket_pattern_links (pattern_id text NOT NULL, ticket_id text NOT NULL, ord integer NOT NULL);
+CREATE TABLE IF NOT EXISTS prior_art_edges (
+  id text PRIMARY KEY,
+  ticket_id_a text NOT NULL,
+  ticket_id_b text NOT NULL,
+  score double precision NOT NULL,
+  signals_json text NOT NULL,
+  strength double precision NOT NULL,
+  first_seen_at text NOT NULL,
+  last_seen_at text NOT NULL,
+  created_at text NOT NULL,
+  updated_at text NOT NULL
+);
 `;
 
 /** Tables in dependency-free delete order (no FKs; order is for readability). */
 const TABLES = [
+  "prior_art_edges",
   "ticket_pattern_links",
   "ticket_notes",
   "ticket_tags",
@@ -84,6 +98,7 @@ interface MetaRows {
   updatedAt: string;
   nextTicketSeq: number;
   nextPatternSeq: number;
+  nextPriorArtEdgeSeq: number;
 }
 interface PatternRow {
   id: string;
@@ -143,6 +158,18 @@ interface LinkRow {
   ticketId: string;
   ord: number;
 }
+interface EdgeRow {
+  id: string;
+  ticketIdA: string;
+  ticketIdB: string;
+  score: number;
+  signalsJson: string;
+  strength: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface RelationalRows {
   meta: MetaRows;
@@ -152,6 +179,7 @@ export interface RelationalRows {
   tags: TagRow[];
   notes: NoteRow[];
   links: LinkRow[];
+  edges: EdgeRow[];
 }
 
 // --- Pure mapping (LoopState <-> relational rows), no DB -------------------
@@ -182,6 +210,18 @@ export function serializeState(state: LoopState): RelationalRows {
       links.push({ patternId: pattern.id, ticketId, ord }),
     );
   }
+  const edges: EdgeRow[] = state.priorArtEdges.map((edge) => ({
+    id: edge.id,
+    ticketIdA: edge.ticketIds[0],
+    ticketIdB: edge.ticketIds[1],
+    score: edge.score,
+    signalsJson: JSON.stringify(edge.signals),
+    strength: edge.strength,
+    firstSeenAt: edge.firstSeenAt,
+    lastSeenAt: edge.lastSeenAt,
+    createdAt: edge.createdAt,
+    updatedAt: edge.updatedAt,
+  }));
 
   return {
     meta: {
@@ -191,6 +231,7 @@ export function serializeState(state: LoopState): RelationalRows {
       updatedAt: state.updatedAt,
       nextTicketSeq: state.nextTicketSeq,
       nextPatternSeq: state.nextPatternSeq,
+      nextPriorArtEdgeSeq: state.nextPriorArtEdgeSeq,
     },
     patterns: state.patterns.map((p) => ({
       id: p.id,
@@ -230,6 +271,7 @@ export function serializeState(state: LoopState): RelationalRows {
     tags,
     notes,
     links,
+    edges,
   };
 }
 
@@ -303,6 +345,27 @@ export function deserializeRows(rows: RelationalRows): LoopState {
     ticketIds: (linksByPattern.get(row.id) ?? []).sort(byOrd).map((l) => l.ticketId),
   }));
 
+  const priorArtEdges: PriorArtEdge[] = rows.edges.map((row) => {
+    let signals: string[];
+    try {
+      const parsed = JSON.parse(row.signalsJson);
+      signals = Array.isArray(parsed) ? parsed.map((s) => String(s)) : [];
+    } catch {
+      signals = [];
+    }
+    return {
+      id: row.id,
+      ticketIds: [row.ticketIdA, row.ticketIdB],
+      score: row.score,
+      signals,
+      strength: row.strength,
+      firstSeenAt: row.firstSeenAt,
+      lastSeenAt: row.lastSeenAt,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  });
+
   return {
     version: rows.meta.version,
     project: rows.meta.project,
@@ -310,8 +373,10 @@ export function deserializeRows(rows: RelationalRows): LoopState {
     updatedAt: rows.meta.updatedAt,
     nextTicketSeq: rows.meta.nextTicketSeq,
     nextPatternSeq: rows.meta.nextPatternSeq,
+    nextPriorArtEdgeSeq: rows.meta.nextPriorArtEdgeSeq,
     tickets,
     patterns,
+    priorArtEdges,
   };
 }
 
@@ -377,6 +442,7 @@ export class PostgresStateBackend implements StateBackend {
       const tags = (await c.query<Record<string, unknown>>("SELECT * FROM ticket_tags ORDER BY ticket_id, ord")).rows;
       const notes = (await c.query<Record<string, unknown>>("SELECT * FROM ticket_notes ORDER BY ticket_id, ord")).rows;
       const links = (await c.query<Record<string, unknown>>("SELECT * FROM ticket_pattern_links ORDER BY pattern_id, ord")).rows;
+      const edges = (await c.query<Record<string, unknown>>("SELECT * FROM prior_art_edges ORDER BY id")).rows;
       const rows: RelationalRows = {
         meta: {
           project: String(meta.project),
@@ -385,6 +451,7 @@ export class PostgresStateBackend implements StateBackend {
           updatedAt: String(meta.updated_at),
           nextTicketSeq: Number(meta.next_ticket_seq),
           nextPatternSeq: Number(meta.next_pattern_seq),
+          nextPriorArtEdgeSeq: Number(meta.next_prior_art_edge_seq ?? 0),
         },
         patterns: patterns.map((r) => ({
           id: String(r.id),
@@ -432,6 +499,18 @@ export class PostgresStateBackend implements StateBackend {
           ord: Number(r.ord),
         })),
         links: links.map((r) => ({ patternId: String(r.pattern_id), ticketId: String(r.ticket_id), ord: Number(r.ord) })),
+        edges: edges.map((r) => ({
+          id: String(r.id),
+          ticketIdA: String(r.ticket_id_a),
+          ticketIdB: String(r.ticket_id_b),
+          score: Number(r.score),
+          signalsJson: String(r.signals_json),
+          strength: Number(r.strength),
+          firstSeenAt: String(r.first_seen_at),
+          lastSeenAt: String(r.last_seen_at),
+          createdAt: String(r.created_at),
+          updatedAt: String(r.updated_at),
+        })),
       };
       return deserializeRows(rows);
     });
@@ -445,8 +524,8 @@ export class PostgresStateBackend implements StateBackend {
       try {
         for (const table of TABLES) await c.query(`DELETE FROM ${table}`);
         await c.query(
-          "INSERT INTO loop_meta (id, project, version, created_at, updated_at, next_ticket_seq, next_pattern_seq) VALUES (1, $1, $2, $3, $4, $5, $6)",
-          [rows.meta.project, rows.meta.version, rows.meta.createdAt, rows.meta.updatedAt, rows.meta.nextTicketSeq, rows.meta.nextPatternSeq],
+          "INSERT INTO loop_meta (id, project, version, created_at, updated_at, next_ticket_seq, next_pattern_seq, next_prior_art_edge_seq) VALUES (1, $1, $2, $3, $4, $5, $6, $7)",
+          [rows.meta.project, rows.meta.version, rows.meta.createdAt, rows.meta.updatedAt, rows.meta.nextTicketSeq, rows.meta.nextPatternSeq, rows.meta.nextPriorArtEdgeSeq],
         );
         for (const p of rows.patterns) {
           await c.query(
@@ -472,6 +551,12 @@ export class PostgresStateBackend implements StateBackend {
         }
         for (const l of rows.links) {
           await c.query("INSERT INTO ticket_pattern_links (pattern_id, ticket_id, ord) VALUES ($1, $2, $3)", [l.patternId, l.ticketId, l.ord]);
+        }
+        for (const e of rows.edges) {
+          await c.query(
+            "INSERT INTO prior_art_edges (id, ticket_id_a, ticket_id_b, score, signals_json, strength, first_seen_at, last_seen_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+            [e.id, e.ticketIdA, e.ticketIdB, e.score, e.signalsJson, e.strength, e.firstSeenAt, e.lastSeenAt, e.createdAt, e.updatedAt],
+          );
         }
         await c.query("COMMIT");
       } catch (error) {

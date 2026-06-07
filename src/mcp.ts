@@ -556,6 +556,35 @@ export function createMcpServer(
     },
   );
 
+  server.registerTool(
+    "agentloop_prior_art_graph",
+    {
+      title: "Persisted prior-art graph (durable, decaying)",
+      description:
+        "Read-only lookup of a ticket's persisted prior-art edges — durable connections discovered by `agentloop_prior_art_refresh` that fade (decay) over time without fresh evidence, rather than being recomputed fresh on every call like agentloop_related.",
+      inputSchema: {
+        id: z.string(),
+        minStrength: z.number().nonnegative().optional(),
+        decayHalfLifeDays: z.number().positive().optional(),
+        limit: z.number().int().nonnegative().optional(),
+      },
+      annotations: readOnly,
+    },
+    async (args) => {
+      try {
+        return ok(
+          await store.priorArtGraph(args.id, {
+            minStrength: args.minStrength,
+            decayHalfLifeDays: args.decayHalfLifeDays,
+            limit: args.limit,
+          }),
+        );
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
   if (options.allowWrites) {
     registerWriteTools(server, store);
   }
@@ -696,6 +725,34 @@ function registerWriteTools(server: McpServer, store: AgentLoopStore): void {
     async (args) => {
       try {
         return ok(await githubSyncTool(store, args));
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "agentloop_prior_art_refresh",
+    {
+      title: "Refresh the persisted prior-art graph",
+      description:
+        "Recompute deterministic relatedness for every ticket pair and persist it as durable, decaying edges: pairs that still qualify are reinforced, pairs that no longer qualify fade in place, and edges decayed past the prune floor are dropped. Mutates and saves ledger state.",
+      inputSchema: {
+        minScore: z.number().nonnegative().optional(),
+        decayHalfLifeDays: z.number().positive().optional(),
+        pruneBelowStrength: z.number().nonnegative().optional(),
+      },
+      annotations: write,
+    },
+    async (args) => {
+      try {
+        return ok(
+          await store.refreshPriorArtGraph({
+            minScore: args.minScore,
+            decayHalfLifeDays: args.decayHalfLifeDays,
+            pruneBelowStrength: args.pruneBelowStrength,
+          }),
+        );
       } catch (error) {
         return fail(error);
       }

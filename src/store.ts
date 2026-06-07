@@ -34,6 +34,14 @@ import {
 } from "./knowledge";
 import { relatedTickets, PriorArtOptions, PriorArtReport } from "./prior-art";
 import {
+  refreshPriorArtGraph,
+  priorArtGraphForTicket,
+  PriorArtGraphOptions,
+  PriorArtGraphQueryOptions,
+  PriorArtGraphRefreshSummary,
+  PriorArtGraphReport,
+} from "./prior-art-graph";
+import {
   buildGithubIssuePayload,
   parseGithubIssueUrl,
   GithubClient,
@@ -56,6 +64,10 @@ function ticketId(seq: number) {
 
 function patternId(seq: number) {
   return `PATTERN-${String(seq).padStart(SEQ_PAD, "0")}`;
+}
+
+function edgeId(seq: number) {
+  return `EDGE-${String(seq).padStart(SEQ_PAD, "0")}`;
 }
 
 function nowIso() {
@@ -93,8 +105,10 @@ export class AgentLoopStore {
         updatedAt: nowIso(),
         nextTicketSeq: 0,
         nextPatternSeq: 0,
+        nextPriorArtEdgeSeq: 0,
         tickets: [],
         patterns: [],
+        priorArtEdges: [],
       };
       await this.persist();
       return this.state;
@@ -103,6 +117,9 @@ export class AgentLoopStore {
     if (!this.state.project) {
       this.state.project = project;
     }
+    // Backfill state persisted before the prior-art graph existed.
+    if (!this.state.priorArtEdges) this.state.priorArtEdges = [];
+    if (!this.state.nextPriorArtEdgeSeq) this.state.nextPriorArtEdgeSeq = 0;
     return this.state;
   }
 
@@ -409,6 +426,50 @@ export class AgentLoopStore {
     return relatedTickets(targetId, state.tickets, {
       weights: { ...configured?.weights, ...options.weights },
       minScore: options.minScore ?? configured?.minScore,
+      limit: options.limit,
+    });
+  }
+
+  /**
+   * Recompute the durable prior-art graph and persist it (write — mutates and
+   * saves state). Reinforces edges whose pairs still score, lets edges that
+   * no longer qualify decay in place, and prunes edges that have decayed past
+   * the configured floor. See `prior-art-graph.ts` for the full mechanic.
+   */
+  async refreshPriorArtGraph(options: PriorArtGraphOptions = {}): Promise<PriorArtGraphRefreshSummary> {
+    const state = await this.ensureInitialized();
+    const configured = this.config.priorArtGraph;
+    const { edges, summary } = refreshPriorArtGraph(
+      state.tickets,
+      state.priorArtEdges,
+      () => edgeId(++state.nextPriorArtEdgeSeq),
+      {
+        weights: options.weights,
+        minScore: options.minScore ?? configured?.minScore,
+        decayHalfLifeDays: options.decayHalfLifeDays ?? configured?.decayHalfLifeDays,
+        pruneBelowStrength: options.pruneBelowStrength ?? configured?.pruneBelowStrength,
+        now: options.now,
+      },
+    );
+    state.priorArtEdges = edges;
+    state.updatedAt = nowIso();
+    await this.persist();
+    return summary;
+  }
+
+  /**
+   * Look up a ticket's persisted prior-art edges (durable, decaying — distinct
+   * from `related`'s on-the-fly relatedness). Decay is applied at query time,
+   * so `strength` reflects "how related as of right now," not just as of the
+   * last `refreshPriorArtGraph`. Read-only: never mutates or persists.
+   */
+  async priorArtGraph(rawId: string, options: PriorArtGraphQueryOptions = {}): Promise<PriorArtGraphReport> {
+    const state = await this.ensureInitialized();
+    const targetId = normalizeTicketInput(rawId, state.tickets);
+    const configured = this.config.priorArtGraph;
+    return priorArtGraphForTicket(targetId, state.tickets, state.priorArtEdges, {
+      decayHalfLifeDays: options.decayHalfLifeDays ?? configured?.decayHalfLifeDays,
+      minStrength: options.minStrength,
       limit: options.limit,
     });
   }

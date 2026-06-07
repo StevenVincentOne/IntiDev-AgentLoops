@@ -19,6 +19,7 @@ function sampleState(): LoopState {
     updatedAt: ts,
     nextTicketSeq: 2,
     nextPatternSeq: 1,
+    nextPriorArtEdgeSeq: 1,
     patterns: [
       {
         id: "PATTERN-000001",
@@ -75,6 +76,19 @@ function sampleState(): LoopState {
         patternId: "PATTERN-000001",
       },
     ],
+    priorArtEdges: [
+      {
+        id: "EDGE-000001",
+        ticketIds: ["ISSUE-000001", "ISSUE-000002"],
+        score: 4,
+        signals: ["family", "tag:a"],
+        strength: 3.5,
+        firstSeenAt: ts,
+        lastSeenAt: ts,
+        createdAt: ts,
+        updatedAt: ts,
+      },
+    ],
   };
 }
 
@@ -93,6 +107,7 @@ test("TICKET_SCHEMA_SQL defines the public ticket_* tables", () => {
     "ticket_tags",
     "ticket_notes",
     "ticket_pattern_links",
+    "prior_art_edges",
   ]) {
     assert.ok(TICKET_SCHEMA_SQL.includes(table), `schema should define ${table}`);
   }

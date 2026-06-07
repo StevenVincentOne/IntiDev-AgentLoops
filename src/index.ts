@@ -80,6 +80,22 @@ export type {
   RelatedTicket,
 } from "./prior-art";
 export {
+  refreshPriorArtGraph,
+  priorArtGraphForTicket,
+  decayedStrength,
+  PRIOR_ART_GRAPH_SCHEMA_VERSION,
+  DEFAULT_GRAPH_MIN_SCORE,
+  DEFAULT_DECAY_HALF_LIFE_DAYS,
+  DEFAULT_PRUNE_BELOW_STRENGTH,
+} from "./prior-art-graph";
+export type {
+  PriorArtGraphOptions,
+  PriorArtGraphRefreshSummary,
+  PriorArtGraphQueryOptions,
+  PriorArtGraphReport,
+  PriorArtGraphEntry,
+} from "./prior-art-graph";
+export {
   createMcpServer,
   startStdioMcpServer,
   summaryTool,

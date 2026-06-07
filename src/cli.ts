@@ -38,6 +38,8 @@ const COMMANDS = [
   "knowledge",
   "knowledge-gaps",
   "related",
+  "prior-art-graph",
+  "prior-art-refresh",
   "dashboard",
   "serve",
   "config",
@@ -115,7 +117,11 @@ function printHelp() {
   printLine("                                  open tickets whose title/summary look like the same problem");
   printLine("  knowledge [--family ..] [--kind ..] [--query ..]  search resolved-ticket fix knowledge");
   printLine("  knowledge-gaps [--family ..] [--severity ..] [--source ..]  resolved tickets lacking reusable knowledge");
-  printLine("  related <id> [--min-score N] [--limit N]  prior-art: tickets related to <id>");
+  printLine("  related <id> [--min-score N] [--limit N]  prior-art: tickets related to <id> (on-the-fly)");
+  printLine("  prior-art-graph <id> [--min-strength N] [--half-life-days N] [--limit N]");
+  printLine("                                  durable, decaying prior-art edges persisted for <id>");
+  printLine("  prior-art-refresh [--min-score N] [--half-life-days N] [--prune-below N]");
+  printLine("                                  recompute + persist the prior-art graph (write)");
   printLine("  dashboard [--out file.html] [--stdout]  write a standalone HTML dashboard");
   printLine("  serve [--port N]                serve the dashboard over HTTP (default 4319)");
   printLine("  config                          print effective config");
@@ -433,6 +439,27 @@ async function cmdRelated(argv: string[], options: ArgMap) {
   printJson(await store.related(id, { minScore, limit }));
 }
 
+async function cmdPriorArtGraph(argv: string[], options: ArgMap) {
+  const { store } = await ensureConfig();
+  const id = argv[1];
+  if (!id) throw new Error("prior-art-graph requires an id");
+  const minStrength = typeof options["min-strength"] === "string" ? Number(options["min-strength"]) : undefined;
+  const decayHalfLifeDays =
+    typeof options["half-life-days"] === "string" ? Number(options["half-life-days"]) : undefined;
+  const limit = typeof options.limit === "string" ? Number(options.limit) : undefined;
+  printJson(await store.priorArtGraph(id, { minStrength, decayHalfLifeDays, limit }));
+}
+
+async function cmdPriorArtRefresh(options: ArgMap) {
+  const { store } = await ensureConfig();
+  const minScore = typeof options["min-score"] === "string" ? Number(options["min-score"]) : undefined;
+  const decayHalfLifeDays =
+    typeof options["half-life-days"] === "string" ? Number(options["half-life-days"]) : undefined;
+  const pruneBelowStrength =
+    typeof options["prune-below"] === "string" ? Number(options["prune-below"]) : undefined;
+  printJson(await store.refreshPriorArtGraph({ minScore, decayHalfLifeDays, pruneBelowStrength }));
+}
+
 async function cmdDashboard(options: ArgMap) {
   const { store } = await ensureConfig();
   const html = renderDashboard(await gatherDashboardData(store));
@@ -565,6 +592,12 @@ async function main() {
       break;
     case "related":
       await cmdRelated(args, options);
+      break;
+    case "prior-art-graph":
+      await cmdPriorArtGraph(args, options);
+      break;
+    case "prior-art-refresh":
+      await cmdPriorArtRefresh(options);
       break;
     case "dashboard":
       await cmdDashboard(options);

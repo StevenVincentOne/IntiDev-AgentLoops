@@ -95,7 +95,9 @@ state fixture; run it with `npm test`.
 - `agentloop near-duplicates` report open tickets whose title/summary look like the same problem
 - `agentloop knowledge` search how prior resolved tickets were fixed
 - `agentloop knowledge-gaps` report resolved tickets lacking reusable knowledge
-- `agentloop related <id>` find prior-art tickets related to one ticket
+- `agentloop related <id>` find prior-art tickets related to one ticket (on-the-fly, not persisted)
+- `agentloop prior-art-graph <id>` show a ticket's durable, decaying prior-art edges (persisted by `prior-art-refresh`)
+- `agentloop prior-art-refresh` recompute and persist the prior-art graph, reinforcing/decaying/pruning edges
 - `agentloop dashboard` write a standalone HTML dashboard
 - `agentloop serve` serve the dashboard over HTTP
 - `agentloop config` print resolved configuration
@@ -130,7 +132,8 @@ Read-only tools (annotated `readOnlyHint`):
 | `agentloop_near_duplicates` | open tickets whose title/summary look like the same problem |
 | `agentloop_search_knowledge` | search how prior resolved tickets were fixed |
 | `agentloop_knowledge_gaps` | resolved tickets lacking reusable knowledge |
-| `agentloop_related` | prior-art: tickets related to a given ticket |
+| `agentloop_related` | prior-art: tickets related to a given ticket (on-the-fly, not persisted) |
+| `agentloop_prior_art_graph` | a ticket's durable, decaying prior-art edges (persisted by `prior-art-refresh`) |
 
 Write tools (only registered with `--write`):
 
@@ -141,6 +144,7 @@ Write tools (only registered with `--write`):
 | `agentloop_workflow` | transition a ticket (`active` / `reopened` / `deferred`) |
 | `agentloop_resolve` | resolve with a summary, optional verification + guard |
 | `agentloop_guard` | record a regression-guard decision |
+| `agentloop_prior_art_refresh` | recompute + persist the prior-art graph (reinforce / decay / prune edges) |
 
 Each result is a JSON envelope with `schemaVersion` and `generatedAt`. The server
 reads/writes state from the `.agentloops/state.json` in its working directory, so

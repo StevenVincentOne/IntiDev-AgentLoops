@@ -69,6 +69,15 @@ export interface ProjectConfig {
     }>;
     minScore?: number;
   };
+  /** Optional overrides for the durable, decaying prior-art relationship graph. */
+  priorArtGraph?: {
+    /** Minimum deterministic score for a ticket pair to become/stay an edge. Default 1. */
+    minScore?: number;
+    /** Days for a dormant edge's strength to halve. Default 14. */
+    decayHalfLifeDays?: number;
+    /** Edges decayed below this strength are dropped on refresh. Default 0.05. */
+    pruneBelowStrength?: number;
+  };
   /** Optional config-driven redaction. Library users can also inject a TicketRedactor directly. */
   redaction?: {
     patterns?: RedactionRule[];
@@ -184,6 +193,32 @@ export interface Pattern {
   ticketIds: string[];
 }
 
+/**
+ * A durable, decaying edge between two tickets in the prior-art relationship
+ * graph. Unlike `relatedTickets()` (which scores relatedness fresh on every
+ * call), edges persist across runs: `refreshPriorArtGraph` recomputes the
+ * deterministic score for every ticket pair, reinforces edges that still
+ * qualify (bumping `lastSeenAt`/`score`), and lets edges that no longer
+ * qualify fade — `strength` decays toward zero the longer `lastSeenAt` ages,
+ * so stale connections quietly lose weight instead of vanishing outright or
+ * staying permanently pinned at their peak score.
+ */
+export interface PriorArtEdge {
+  id: string;
+  /** Canonical pair, ticketIds[0] < ticketIds[1] (string compare) so each pair has exactly one edge. */
+  ticketIds: [string, string];
+  /** Most recent deterministic relatedness score for this pair (same signals as `relatedTickets`). */
+  score: number;
+  /** Most recent evidence for the edge, e.g. ["family", "tag:export", "text:0.42"]. */
+  signals: string[];
+  /** Decayed durability, recomputed at query time from `score`/`lastSeenAt`/now. Persisted as of the last refresh. */
+  strength: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface LoopState {
   version: number;
   project: string;
@@ -191,8 +226,10 @@ export interface LoopState {
   updatedAt: string;
   nextTicketSeq: number;
   nextPatternSeq: number;
+  nextPriorArtEdgeSeq: number;
   tickets: Ticket[];
   patterns: Pattern[];
+  priorArtEdges: PriorArtEdge[];
 }
 
 export interface CreateTicketInput {
