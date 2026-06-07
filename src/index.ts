@@ -39,6 +39,13 @@ export type {
   GuardGap,
   GuardGapReason,
 } from "./guards";
+export { workflowAuditReport, WORKFLOW_AUDIT_SCHEMA_VERSION } from "./workflow-audit";
+export type {
+  WorkflowAuditOptions,
+  WorkflowAuditReport,
+  WorkflowAuditPatternEntry,
+  WorkflowAuditTicketRef,
+} from "./workflow-audit";
 export { resolutionKnowledge, knowledgeGaps, KNOWLEDGE_SCHEMA_VERSION } from "./knowledge";
 export type {
   KnowledgeEntry,

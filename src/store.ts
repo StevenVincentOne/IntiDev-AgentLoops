@@ -22,6 +22,7 @@ import {
   SourceConvergenceReport,
 } from "./convergence";
 import { guardGapReport, GuardGapOptions, GuardGapReport } from "./guards";
+import { workflowAuditReport, WorkflowAuditOptions, WorkflowAuditReport } from "./workflow-audit";
 import {
   resolutionKnowledge,
   knowledgeGaps,
@@ -376,6 +377,11 @@ export class AgentLoopStore {
   async guardGaps(options: GuardGapOptions = {}): Promise<GuardGapReport> {
     const state = await this.ensureInitialized();
     return guardGapReport(state.tickets, this.config, options);
+  }
+
+  async workflowAudit(options: WorkflowAuditOptions = {}): Promise<WorkflowAuditReport> {
+    const state = await this.ensureInitialized();
+    return workflowAuditReport(state.tickets, state.patterns, options);
   }
 
   async searchKnowledge(

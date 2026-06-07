@@ -21,6 +21,7 @@ async function handle(
       return sendJson(res, await store.sourceConvergence({ includeAll: true }));
     }
     if (url === "/api/guard-gaps") return sendJson(res, await store.guardGaps({}));
+    if (url === "/api/workflow-audit") return sendJson(res, await store.workflowAudit({}));
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(renderDashboard(await gatherDashboardData(store)));
   } catch (error) {

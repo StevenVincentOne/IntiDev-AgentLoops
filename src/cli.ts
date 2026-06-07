@@ -33,6 +33,7 @@ const COMMANDS = [
   "summary",
   "convergence",
   "guard-gaps",
+  "workflow-audit",
   "knowledge",
   "knowledge-gaps",
   "related",
@@ -108,6 +109,7 @@ function printHelp() {
   printLine("  summary                         print loop stats");
   printLine("  convergence [--family ..] [--min-sources N] [--all]  patterns spanning multiple sources");
   printLine("  guard-gaps [--family ..] [--include-waived] [--all-kinds]  resolved tickets missing a guard");
+  printLine("  workflow-audit [--family ..]    patterns whose status disagrees with their linked tickets");
   printLine("  knowledge [--family ..] [--kind ..] [--query ..]  search resolved-ticket fix knowledge");
   printLine("  knowledge-gaps [--family ..] [--severity ..] [--source ..]  resolved tickets lacking reusable knowledge");
   printLine("  related <id> [--min-score N] [--limit N]  prior-art: tickets related to <id>");
@@ -375,6 +377,12 @@ async function cmdGuardGaps(options: ArgMap) {
   printJson(await store.guardGaps({ family, includeWaived, allKinds }));
 }
 
+async function cmdWorkflowAudit(options: ArgMap) {
+  const { store } = await ensureConfig();
+  const family = typeof options.family === "string" ? options.family : undefined;
+  printJson(await store.workflowAudit({ family }));
+}
+
 async function cmdKnowledge(options: ArgMap) {
   const { store } = await ensureConfig();
   const str = (key: string) => (typeof options[key] === "string" ? (options[key] as string) : undefined);
@@ -529,6 +537,9 @@ async function main() {
       break;
     case "guard-gaps":
       await cmdGuardGaps(options);
+      break;
+    case "workflow-audit":
+      await cmdWorkflowAudit(options);
       break;
     case "knowledge":
       await cmdKnowledge(options);

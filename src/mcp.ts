@@ -445,6 +445,26 @@ export function createMcpServer(
   );
 
   server.registerTool(
+    "agentloop_workflow_audit",
+    {
+      title: "Workflow consistency audit",
+      description:
+        "Read-only report of patterns whose status disagrees with their linked tickets: resolved patterns with active (or reopened) linked tickets, and active patterns whose linked tickets are all closed out.",
+      inputSchema: {
+        family: z.string().optional(),
+      },
+      annotations: readOnly,
+    },
+    async (args) => {
+      try {
+        return ok(await store.workflowAudit(args));
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  server.registerTool(
     "agentloop_search_knowledge",
     {
       title: "Search resolution knowledge",
