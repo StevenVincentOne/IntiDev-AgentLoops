@@ -39,3 +39,9 @@ jobs:
         run: npm test
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/agentloops
+      - name: Typecheck (react package)
+        run: npm run typecheck --workspace packages/react
+      - name: Build (react package)
+        run: npm run build --workspace packages/react
+      - name: Test (react package)
+        run: npm test --workspace packages/react

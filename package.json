@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "IntiDev AgentLoops - Feedback Loops for Agentic Workflows",
   "license": "MIT",
+  "workspaces": [
+    "packages/*"
+  ],
   "type": "commonjs",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

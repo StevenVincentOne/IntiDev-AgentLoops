@@ -171,7 +171,38 @@ agentloop serve --port 4319                # live dashboard + read-only JSON at 
 
 Both work over either storage backend. All ticket content is HTML-escaped. For a
 richer or embeddable UI, the `renderDashboard(data)` and `createDashboardServer(store)`
-exports can be built upon.
+exports can be built upon — or use the React components below.
+
+## React components
+
+For teams that want to embed AgentLoops data in their own React app rather than
+the static dashboard, [`@stevenvincentone/intidev-agentloops-react`](packages/react)
+ships a data hook and presentational components (`useAgentLoopData`,
+`<SummaryCards>`, `<TicketList>`, `<PatternList>`) that talk to the same
+read-only `/api/*` JSON served by `agentloop serve`:
+
+```bash
+npm install @stevenvincentone/intidev-agentloops-react react react-dom
+```
+
+```tsx
+import { useAgentLoopData, SummaryCards, TicketList } from "@stevenvincentone/intidev-agentloops-react";
+
+function LoopDashboard() {
+  const { data, loading, error } = useAgentLoopData({ baseUrl: "http://localhost:4319" });
+  if (!data) return <p>Loading…</p>;
+  return (
+    <>
+      <SummaryCards summary={data.summary} />
+      <TicketList tickets={data.tickets} />
+    </>
+  );
+}
+```
+
+See [packages/react/README.md](packages/react/README.md) for the full component
+list and styling notes (everything ships with predictable `agentloops-*` class
+names — bring your own CSS).
 
 ## Data model
 
