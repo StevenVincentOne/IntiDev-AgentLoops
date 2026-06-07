@@ -13,6 +13,7 @@ import { buildHandoffPrompt } from "./handoff";
 import { gatherDashboardData, renderDashboard } from "./dashboard";
 import { createDashboardServer } from "./serve";
 import { BackendSelection, resolveBackend } from "./storage";
+import { resolveGithubTarget } from "./github";
 
 type ArgMap = Record<string, string | boolean>;
 
@@ -39,6 +40,8 @@ const COMMANDS = [
   "serve",
   "config",
   "mcp",
+  "github-link",
+  "github-sync",
   "help",
 ];
 
@@ -112,8 +115,13 @@ function printHelp() {
   printLine("  serve [--port N]                serve the dashboard over HTTP (default 4319)");
   printLine("  config                          print effective config");
   printLine("  mcp [--write]                   run the MCP server over stdio (read-only unless --write)");
+  printLine("  github-link <id> <issue-url>    manually link a ticket to an existing GitHub Issue");
+  printLine("  github-sync <id>                create/update the linked Issue and import new comments");
   printLine("");
   printLine("Storage: set DATABASE_URL to run on Postgres; otherwise .agentloops/state.json is used.");
+  printLine(
+    "GitHub sync: set github.repo (and GITHUB_TOKEN, or github.tokenEnv) in agentloop.config.json to enable github-sync.",
+  );
 }
 
 interface OpenStore {
@@ -431,6 +439,26 @@ async function cmdConfig() {
   printJson(config);
 }
 
+async function cmdGithubLink(argv: string[]) {
+  const { store } = await ensureConfig();
+  const id = argv[1];
+  const issueUrl = argv[2];
+  if (!id || !issueUrl) throw new Error("github-link requires <id> <issue-url>");
+  printJson(await store.linkGithubIssue(id, issueUrl));
+}
+
+async function cmdGithubSync(argv: string[]) {
+  const { store, config } = await ensureConfig();
+  const id = argv[1];
+  if (!id) throw new Error("github-sync requires <id>");
+  const target = resolveGithubTarget(config);
+  if (!target) {
+    throw new Error("GitHub sync is not configured: set `github.repo` in agentloop.config.json");
+  }
+  const result = await store.syncGithubIssue(id, target.client);
+  printJson(result);
+}
+
 async function cmdMcp(options: ArgMap) {
   const { cwd, config, kind } = await ensureConfig();
   // Writes are opt-in: read-only unless --write (alias --allow-writes) is set.
@@ -522,6 +550,12 @@ async function main() {
       break;
     case "mcp":
       await cmdMcp(options);
+      break;
+    case "github-link":
+      await cmdGithubLink(args);
+      break;
+    case "github-sync":
+      await cmdGithubSync(args);
       break;
     default:
       printHelp();

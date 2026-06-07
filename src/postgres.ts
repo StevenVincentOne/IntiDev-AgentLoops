@@ -44,7 +44,11 @@ CREATE TABLE IF NOT EXISTS tickets (
   pattern_id text,
   verification text,
   reproducible boolean,
-  resolution_summary text
+  resolution_summary text,
+  github_issue_url text,
+  github_issue_number integer,
+  github_last_synced_at text,
+  github_last_synced_comment_id integer
 );
 CREATE TABLE IF NOT EXISTS ticket_aliases (ticket_id text NOT NULL, alias text NOT NULL, ord integer NOT NULL);
 CREATE TABLE IF NOT EXISTS ticket_tags (ticket_id text NOT NULL, tag text NOT NULL, ord integer NOT NULL);
@@ -110,6 +114,10 @@ interface TicketRow {
   verification: string | null;
   reproducible: boolean | null;
   resolutionSummary: string | null;
+  githubIssueUrl: string | null;
+  githubIssueNumber: number | null;
+  githubLastSyncedAt: string | null;
+  githubLastSyncedCommentId: number | null;
 }
 interface AliasRow {
   ticketId: string;
@@ -213,6 +221,10 @@ export function serializeState(state: LoopState): RelationalRows {
       verification: t.verification ?? null,
       reproducible: t.reproducible ?? null,
       resolutionSummary: t.resolutionSummary ?? null,
+      githubIssueUrl: t.github?.issueUrl ?? null,
+      githubIssueNumber: t.github?.issueNumber ?? null,
+      githubLastSyncedAt: t.github?.lastSyncedAt ?? null,
+      githubLastSyncedCommentId: t.github?.lastSyncedCommentId ?? null,
     })),
     aliases,
     tags,
@@ -270,6 +282,14 @@ export function deserializeRows(rows: RelationalRows): LoopState {
     if (row.verification != null) ticket.verification = row.verification;
     if (row.reproducible != null) ticket.reproducible = row.reproducible;
     if (row.resolutionSummary != null) ticket.resolutionSummary = row.resolutionSummary;
+    if (row.githubIssueUrl != null && row.githubIssueNumber != null) {
+      ticket.github = {
+        issueUrl: row.githubIssueUrl,
+        issueNumber: row.githubIssueNumber,
+        ...(row.githubLastSyncedAt != null ? { lastSyncedAt: row.githubLastSyncedAt } : {}),
+        ...(row.githubLastSyncedCommentId != null ? { lastSyncedCommentId: row.githubLastSyncedCommentId } : {}),
+      };
+    }
     return ticket;
   });
 
@@ -395,6 +415,10 @@ export class PostgresStateBackend implements StateBackend {
           verification: (r.verification as string | null) ?? null,
           reproducible: (r.reproducible as boolean | null) ?? null,
           resolutionSummary: (r.resolution_summary as string | null) ?? null,
+          githubIssueUrl: (r.github_issue_url as string | null) ?? null,
+          githubIssueNumber: (r.github_issue_number as number | null) ?? null,
+          githubLastSyncedAt: (r.github_last_synced_at as string | null) ?? null,
+          githubLastSyncedCommentId: (r.github_last_synced_comment_id as number | null) ?? null,
         })),
         aliases: aliases.map((r) => ({ ticketId: String(r.ticket_id), alias: String(r.alias), ord: Number(r.ord) })),
         tags: tags.map((r) => ({ ticketId: String(r.ticket_id), tag: String(r.tag), ord: Number(r.ord) })),
@@ -432,9 +456,9 @@ export class PostgresStateBackend implements StateBackend {
         }
         for (const t of rows.tickets) {
           await c.query(
-            `INSERT INTO tickets (id, family, kind, source, title, summary, severity, confidence, status, created_at, updated_at, started_at, resolved_at, handoff_text, guard_status, guard_summary, pattern_id, verification, reproducible, resolution_summary)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
-            [t.id, t.family, t.kind, t.source, t.title, t.summary, t.severity, t.confidence, t.status, t.createdAt, t.updatedAt, t.startedAt, t.resolvedAt, t.handoffText, t.guardStatus, t.guardSummary, t.patternId, t.verification, t.reproducible, t.resolutionSummary],
+            `INSERT INTO tickets (id, family, kind, source, title, summary, severity, confidence, status, created_at, updated_at, started_at, resolved_at, handoff_text, guard_status, guard_summary, pattern_id, verification, reproducible, resolution_summary, github_issue_url, github_issue_number, github_last_synced_at, github_last_synced_comment_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,
+            [t.id, t.family, t.kind, t.source, t.title, t.summary, t.severity, t.confidence, t.status, t.createdAt, t.updatedAt, t.startedAt, t.resolvedAt, t.handoffText, t.guardStatus, t.guardSummary, t.patternId, t.verification, t.reproducible, t.resolutionSummary, t.githubIssueUrl, t.githubIssueNumber, t.githubLastSyncedAt, t.githubLastSyncedCommentId],
           );
         }
         for (const a of rows.aliases) {

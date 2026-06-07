@@ -98,6 +98,8 @@ state fixture; run it with `npm test`.
 - `agentloop serve` serve the dashboard over HTTP
 - `agentloop config` print resolved configuration
 - `agentloop mcp` run the read-only MCP server over stdio
+- `agentloop github-link <id> <issue-url>` manually link a ticket to an existing GitHub Issue
+- `agentloop github-sync <id>` create/update the linked Issue and import new comments (needs `github.repo`)
 
 All commands support `--json` for machine-readable output where relevant.
 
@@ -207,6 +209,22 @@ it is written to `.agentloops/state.json`:
 
 - **Code-driven** — library users can inject a `TicketRedactor`:
   `new AgentLoopStore(cwd, config, { redactor })`.
+
+## GitHub Issues sync (optional)
+
+Off by default. Set `github.repo` (and a `GITHUB_TOKEN`-style env var) to mirror
+tickets onto linked GitHub Issues — title, body, and labels (queue/kind/severity/status,
+each overridable). Tickets remain the richer agent-memory layer; the Issue is a
+public mirror others can read and comment on.
+
+```sh
+agentloop github-sync ISSUE-000001   # create or update the linked Issue, import new comments
+agentloop github-link ISSUE-000001 https://github.com/owner/name/issues/42   # manual link
+```
+
+New Issue comments are imported as redacted `external` ticket notes (deduped via
+a synced-comment cursor). No SDK dependency — the default client wraps the
+GitHub REST API with Node's built-in `fetch`. See [docs/config.md](docs/config.md#github-issues-sync-optional).
 
 ## Contributing
 

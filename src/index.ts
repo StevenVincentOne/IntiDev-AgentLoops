@@ -72,7 +72,23 @@ export {
   workflowTool,
   resolveTool,
   guardTool,
+  githubSyncTool,
   MCP_SCHEMA_VERSION,
   MCP_SERVER_NAME,
 } from "./mcp";
-export type { CreateMcpServerOptions, WriteAction, WriteResult } from "./mcp";
+export type { CreateMcpServerOptions, WriteAction, WriteResult, GithubSyncToolResult } from "./mcp";
+export {
+  parseGithubIssueUrl,
+  deriveGithubLabels,
+  buildGithubIssuePayload,
+  createFetchGithubClient,
+  resolveGithubTarget,
+} from "./github";
+export type {
+  GithubClient,
+  GithubIssue,
+  GithubComment,
+  GithubIssueInput,
+  GithubSyncTarget,
+} from "./github";
+export type { GithubSyncResult } from "./store";

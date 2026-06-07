@@ -16,7 +16,13 @@ export type Confidence = "low" | "medium" | "high";
 
 export type GuardStatus = "guard_added" | "guard_existing" | "guard_waived" | "guard_deferred" | "none";
 
-export type NoteType = "hypothesis" | "related_history" | "prior_fix" | "triage" | "investigation";
+export type NoteType =
+  | "hypothesis"
+  | "related_history"
+  | "prior_fix"
+  | "triage"
+  | "investigation"
+  | "external";
 
 export interface KindConfig {
   kind: TicketKind;
@@ -75,6 +81,24 @@ export interface ProjectConfig {
   storage?: {
     databaseUrl?: string;
   };
+  /**
+   * Optional GitHub Issues sync. Tickets remain the richer agent-memory layer;
+   * sync mirrors a ticket onto a linked Issue (title/body/labels) and imports
+   * new Issue comments back as ticket notes. Off unless `repo` is set.
+   */
+  github?: {
+    /** "owner/repo" of the GitHub repository to sync with. */
+    repo?: string;
+    /** Name of the environment variable holding the access token. Defaults to GITHUB_TOKEN. */
+    tokenEnv?: string;
+    /** Override the label mirrored for a given queue/kind/severity/status value. */
+    labels?: {
+      queue?: Record<string, string>;
+      kind?: Record<string, string>;
+      severity?: Record<string, string>;
+      status?: Record<string, string>;
+    };
+  };
 }
 
 /** Context passed to a redactor so host implementations can vary behavior by field/ticket. */
@@ -112,6 +136,17 @@ export interface TicketNote {
   createdAt: string;
 }
 
+/** Sync state for a ticket linked to a GitHub Issue. */
+export interface TicketGithubLink {
+  /** Canonical web URL of the linked issue, e.g. https://github.com/owner/repo/issues/42. */
+  issueUrl: string;
+  issueNumber: number;
+  /** ISO timestamp of the last successful sync. */
+  lastSyncedAt?: string;
+  /** Id of the most recent Issue comment imported as a ticket note (dedupes re-imports). */
+  lastSyncedCommentId?: number;
+}
+
 export interface Ticket {
   id: string;
   family: string;
@@ -136,6 +171,7 @@ export interface Ticket {
   verification?: string;
   reproducible?: boolean;
   resolutionSummary?: string;
+  github?: TicketGithubLink;
 }
 
 export interface Pattern {

@@ -48,6 +48,7 @@ action, ticket }`, where `ticket` carries the canonical `id` and queue `aliases`
 | `agentloop_workflow` | `id`, `status` (`active` \| `reopened` \| `deferred`), `reason?` | resolve via `agentloop_resolve`, not here |
 | `agentloop_resolve` | `id`, `summary` (required), `verification?`, `guardStatus?`, `guardSummary?` | |
 | `agentloop_guard` | `id`, `guardStatus`, `guardSummary?` | |
+| `agentloop_github_sync` | `id` | requires `github.repo` in config; returns `{ ticket, issueUrl, issueNumber, importedComments }` instead of the common write envelope shape |
 
 Notes:
 

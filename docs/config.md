@@ -86,3 +86,36 @@ the MCP write tools:
 Each rule takes a `pattern` (regex source), optional `flags` (default `g`), and
 optional `replacement` (default `[redacted]`). Library users can instead inject a
 `TicketRedactor` directly: `new AgentLoopStore(cwd, config, { redactor })`.
+
+### GitHub Issues sync (optional)
+
+Off by default. Set `github.repo` to mirror tickets onto linked GitHub Issues —
+the ticket stays the richer agent-memory layer; the Issue is a mirror others can
+read and comment on:
+
+```json
+{
+  "github": {
+    "repo": "owner/name",
+    "tokenEnv": "GITHUB_TOKEN",
+    "labels": {
+      "kind": { "bug": "type: bug" },
+      "severity": { "critical": "P0", "high": "P1" }
+    }
+  }
+}
+```
+
+- `repo` — `"owner/name"` of the GitHub repository to sync with.
+- `tokenEnv` — name of the environment variable holding the access token
+  (defaults to `GITHUB_TOKEN`; the token itself is never read from config, so it
+  stays out of committed files).
+- `labels` — optional per-category overrides (`queue`/`kind`/`severity`/`status`);
+  unmapped values fall back to `category:value` (e.g. `kind:bug`).
+
+`agentloop github-sync <id>` creates the linked Issue on first sync (or updates
+it thereafter), mirroring title/body/labels, and imports any new Issue comments
+as `external` ticket notes (redacted, since they originate outside the loop).
+`agentloop github-link <id> <issue-url>` manually attaches an existing Issue
+without syncing. No SDK dependency — the default client wraps the GitHub REST
+API with Node's built-in `fetch`.

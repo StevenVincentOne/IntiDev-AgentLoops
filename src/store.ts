@@ -31,6 +31,18 @@ import {
   KnowledgeGapsReport,
 } from "./knowledge";
 import { relatedTickets, PriorArtOptions, PriorArtReport } from "./prior-art";
+import {
+  buildGithubIssuePayload,
+  parseGithubIssueUrl,
+  GithubClient,
+  GithubIssue,
+} from "./github";
+
+export interface GithubSyncResult {
+  ticket: Ticket;
+  issue: GithubIssue;
+  importedComments: number;
+}
 
 type StateEnvelope = LoopState;
 
@@ -245,6 +257,70 @@ export class AgentLoopStore {
 
   private noteCtx(ticket: Ticket): RedactionContext {
     return { field: "note", ticketKind: ticket.kind, source: ticket.source };
+  }
+
+  /** Manually link a ticket to an existing GitHub Issue by its web URL. */
+  async linkGithubIssue(rawId: string, issueUrl: string): Promise<Ticket> {
+    const parsed = parseGithubIssueUrl(issueUrl);
+    if (!parsed) {
+      throw new Error(`Not a GitHub issue URL: ${issueUrl}`);
+    }
+    const ticket = await this.transitionTicket(rawId, undefined);
+    ticket.github = {
+      issueUrl,
+      issueNumber: parsed.number,
+      lastSyncedAt: ticket.github?.lastSyncedAt,
+      lastSyncedCommentId: ticket.github?.lastSyncedCommentId,
+    };
+    ticket.updatedAt = nowIso();
+    await this.persist();
+    return ticket;
+  }
+
+  /**
+   * Sync a ticket onto its linked GitHub Issue (creating one on first sync),
+   * mirroring title/body/labels, then import any new Issue comments as ticket
+   * notes (redacted, since they originate externally). Tickets remain the
+   * richer agent-memory layer — the Issue is a mirror, not the source of truth.
+   */
+  async syncGithubIssue(rawId: string, client: GithubClient): Promise<GithubSyncResult> {
+    const repo = this.config.github?.repo;
+    if (!repo) {
+      throw new Error("GitHub sync is not configured: set `github.repo` in agentloop.config.json");
+    }
+    const ticket = await this.transitionTicket(rawId, undefined);
+    const payload = buildGithubIssuePayload(ticket, this.config);
+    const issue = ticket.github?.issueNumber
+      ? await client.updateIssue(repo, ticket.github.issueNumber, payload)
+      : await client.createIssue(repo, payload);
+
+    const comments = await client.listComments(repo, issue.number, {
+      sinceId: ticket.github?.lastSyncedCommentId,
+    });
+    let lastSyncedCommentId = ticket.github?.lastSyncedCommentId;
+    for (const comment of comments) {
+      ticket.notes.push({
+        id: `${ticket.id}-note-${Date.now()}-${comment.id}`,
+        type: "external",
+        body: this.redact(
+          `GitHub comment${comment.author ? ` by ${comment.author}` : ""}: ${comment.body}`,
+          this.noteCtx(ticket),
+        ),
+        author: comment.author,
+        createdAt: comment.createdAt,
+      });
+      lastSyncedCommentId = comment.id;
+    }
+
+    ticket.github = {
+      issueUrl: issue.htmlUrl,
+      issueNumber: issue.number,
+      lastSyncedAt: nowIso(),
+      lastSyncedCommentId,
+    };
+    ticket.updatedAt = nowIso();
+    await this.persist();
+    return { ticket, issue, importedComments: comments.length };
   }
 
   async resolvePattern(patternId: string, note: string): Promise<Pattern> {

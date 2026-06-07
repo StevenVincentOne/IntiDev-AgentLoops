@@ -4,6 +4,7 @@ import { z } from "zod";
 import { AgentLoopStore } from "./store";
 import { StateBackend } from "./backend";
 import { buildHandoffPrompt } from "./handoff";
+import { resolveGithubTarget } from "./github";
 import {
   Confidence,
   GuardStatus,
@@ -150,6 +151,7 @@ export const NOTE_TYPES = [
   "prior_fix",
   "triage",
   "investigation",
+  "external",
 ] as const satisfies readonly NoteType[];
 export const GUARD_STATUSES = [
   "guard_added",
@@ -256,6 +258,38 @@ export async function guardTool(
 ): Promise<WriteResult> {
   const ticket = await store.setGuard(args.id, args.guardStatus, args.guardSummary);
   return { ...envelope(), action: "guard", ticket };
+}
+
+export interface GithubSyncToolResult extends Envelope {
+  action: "github_synced";
+  ticket: Ticket;
+  issueUrl: string;
+  issueNumber: number;
+  importedComments: number;
+}
+
+/**
+ * Create or update the ticket's linked GitHub Issue (mirroring title/body/
+ * labels) and import any new Issue comments as ticket notes. Requires
+ * `github.repo` (and a token env var, default GITHUB_TOKEN) in project config.
+ */
+export async function githubSyncTool(
+  store: AgentLoopStore,
+  args: { id: string },
+): Promise<GithubSyncToolResult> {
+  const target = resolveGithubTarget(store.getConfig());
+  if (!target) {
+    throw new Error("GitHub sync is not configured: set `github.repo` in agentloop.config.json");
+  }
+  const result = await store.syncGithubIssue(args.id, target.client);
+  return {
+    ...envelope(),
+    action: "github_synced",
+    ticket: result.ticket,
+    issueUrl: result.issue.htmlUrl,
+    issueNumber: result.issue.number,
+    importedComments: result.importedComments,
+  };
 }
 
 type ToolResult = {
@@ -601,6 +635,24 @@ function registerWriteTools(server: McpServer, store: AgentLoopStore): void {
     async (args) => {
       try {
         return ok(await guardTool(store, args));
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "agentloop_github_sync",
+    {
+      title: "Sync ticket to GitHub Issue",
+      description:
+        "Create or update the ticket's linked GitHub Issue (mirroring title/body/labels) and import new Issue comments as ticket notes. Requires github.repo in project config.",
+      inputSchema: { id: z.string() },
+      annotations: write,
+    },
+    async (args) => {
+      try {
+        return ok(await githubSyncTool(store, args));
       } catch (error) {
         return fail(error);
       }
