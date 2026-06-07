@@ -1,3 +1,5 @@
+<img width="450" height="225" alt="image" src="https://github.com/user-attachments/assets/802115de-3705-4a47-9b50-3b6ead44db91" />
+
 # IntiDev AgentLoops
 
 ### Feedback Loops for Agentic Workflows
