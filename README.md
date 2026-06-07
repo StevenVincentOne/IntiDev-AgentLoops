@@ -170,6 +170,13 @@ or directly in a client config:
 }
 ```
 
+Registering the server gives an agent *access* to the ledger — it doesn't by
+itself change what the agent does. To get an agent to actually use the loop
+as part of its normal workflow (check prior art before debugging, record a
+guard before calling something fixed, etc.), add operating rules to its
+`AGENTS.md`/`CLAUDE.md`. See **[docs/agent-integration.md](docs/agent-integration.md)**
+for a copy/adapt playbook template (CLI and MCP forms of every rule).
+
 ## Dashboard
 
 A zero-dependency reference UI renders the ledger as a single self-contained HTML

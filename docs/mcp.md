@@ -87,3 +87,12 @@ Generic MCP client config:
 
 If you have not installed the package globally, point the client at the built CLI
 instead, e.g. `"command": "node", "args": ["/path/to/dist/cli.js", "mcp"]`.
+
+## Getting an agent to actually use these tools
+
+Registering the server only makes the tools *available* — it doesn't teach an
+agent when to reach for them. For that, add operating rules to the agent's
+`AGENTS.md`/`CLAUDE.md` (or equivalent): see
+[agent-integration.md](agent-integration.md) for a copy/adapt playbook
+template that maps each step of a typical dev loop (triage → investigate →
+fix → verify → guard) onto the CLI commands and MCP tools above.
