@@ -53,6 +53,17 @@ matching MCP tool name in parentheses.
   `agentloop groups` (`agentloop_ticket_groups`) and
   `agentloop near-duplicates` (`agentloop_near_duplicates`) before assuming
   they're independent — and before opening a near-duplicate ticket.
+- **Begin before you build**: when `agentloop groups` surfaces a Group that
+  looks relevant to the work at hand, run `agentloop begin-group <group-key>`
+  (`agentloop_begin_group`) *before* implementing fixes for it. It aggregates
+  prior art and resolution knowledge across every member in one pass and
+  ranks Pattern-discovery hypotheses (e.g. "an active Pattern may already
+  cover this", "resolved prior art recurs", "this looks like its own
+  symptom-cluster") — so you correct course before duplicating a fix or
+  missing a shared root cause. If the workbench confirms the Group is its own
+  recurring problem, promote it to a trackable Pattern with `agentloop
+  promote-group <group-key>` (`agentloop_promote_group`) so future tickets
+  auto-cluster onto it; this is idempotent and safe to re-run.
 - If a real bug, task, feature, investigation, tech-debt item, incident, or
   user-feedback item is found and no matching ticket exists, create one:
   `agentloop create --title "..." --summary "..." --family <family> --kind

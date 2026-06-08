@@ -39,6 +39,8 @@ const COMMANDS = [
   "workflow-repair",
   "near-duplicates",
   "groups",
+  "begin-group",
+  "promote-group",
   "knowledge",
   "knowledge-gaps",
   "related",
@@ -124,6 +126,10 @@ function printHelp() {
   printLine("                                  open tickets whose title/summary look like the same problem");
   printLine("  groups [--family ..] [--min-size 2] [--limit 10]");
   printLine("                                  broad triage clusters of open work worth reviewing together (not resolution objects — see Patterns)");
+  printLine("  begin-group <group-key> [--limit N] [--prior-art-limit N] [--ticket-limit N]");
+  printLine("                                  'begin before you build' for a Group: aggregated prior art, family Patterns/knowledge, and ranked Pattern-discovery hypotheses (read-only)");
+  printLine("  promote-group <group-key> [--title ..] [--summary ..] [--family ..] [--actor ..]");
+  printLine("                                  promote a computed Group to a Pattern: find-or-reuse a Pattern in its family, link members, record provenance (write)");
   printLine("  knowledge [--family ..] [--kind ..] [--query ..]  search resolved-ticket fix knowledge");
   printLine("  knowledge-gaps [--family ..] [--severity ..] [--source ..]  resolved tickets lacking reusable knowledge");
   printLine("  related <id> [--min-score N] [--limit N]  prior-art: tickets related to <id> (on-the-fly)");
@@ -445,6 +451,28 @@ async function cmdGroups(options: ArgMap) {
   printJson(await store.ticketGroups({ family, minSize, limit }));
 }
 
+async function cmdBeginGroup(argv: string[], options: ArgMap) {
+  const { store } = await ensureConfig();
+  const identifier = argv[1];
+  if (!identifier) throw new Error("begin-group requires a group key, e.g. family:export_pipeline");
+  const ticketLimit = typeof options["ticket-limit"] === "string" ? Number(options["ticket-limit"]) : undefined;
+  const relatedLimit = typeof options.limit === "string" ? Number(options.limit) : undefined;
+  const priorArtLimit =
+    typeof options["prior-art-limit"] === "string" ? Number(options["prior-art-limit"]) : undefined;
+  printJson(await store.beginGroup(identifier, { ticketLimit, relatedLimit, priorArtLimit }));
+}
+
+async function cmdPromoteGroup(argv: string[], options: ArgMap) {
+  const { store } = await ensureConfig();
+  const identifier = argv[1];
+  if (!identifier) throw new Error("promote-group requires a group key, e.g. family:export_pipeline");
+  const family = typeof options.family === "string" ? options.family : undefined;
+  const title = typeof options.title === "string" ? options.title : undefined;
+  const summary = typeof options.summary === "string" ? options.summary : undefined;
+  const actor = typeof options.actor === "string" ? options.actor : undefined;
+  printJson(await store.promoteGroup(identifier, { family, title, summary, actor }));
+}
+
 async function cmdKnowledge(options: ArgMap) {
   const { store } = await ensureConfig();
   const str = (key: string) => (typeof options[key] === "string" ? (options[key] as string) : undefined);
@@ -632,6 +660,12 @@ async function main() {
       break;
     case "groups":
       await cmdGroups(options);
+      break;
+    case "begin-group":
+      await cmdBeginGroup(args, options);
+      break;
+    case "promote-group":
+      await cmdPromoteGroup(args, options);
       break;
     case "knowledge":
       await cmdKnowledge(options);

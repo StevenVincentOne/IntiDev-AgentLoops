@@ -1,5 +1,6 @@
-import { Severity, Ticket, TicketGroupCustomRule, TicketStatus } from "./types";
-import { jaccard, tokenize } from "./prior-art";
+import { Pattern, PatternStatus, Severity, Ticket, TicketGroupCustomRule, TicketStatus } from "./types";
+import { jaccard, PriorArtReport, tokenize } from "./prior-art";
+import { ResolutionKnowledgeReport } from "./knowledge";
 
 export const TICKET_GROUPS_SCHEMA_VERSION = 1 as const;
 
@@ -418,4 +419,380 @@ export function ticketGroupsReport(tickets: Ticket[], options: TicketGroupOption
     },
     groups: groups.slice(0, limit),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Group as workbench: prior-art aggregation + Pattern-discovery hypotheses
+//
+// Reframed from Inti's "begin-group"/"promote-group" workflow: before fixing
+// anything for a computed Group, look at it as a *workbench* -- aggregate the
+// prior art its members already point at, see what Patterns already exist in
+// its dominant family, and surface ranked hypotheses about whether the Group
+// is a duplicate of known work, one coherent Pattern, several narrower ones,
+// or just a triage convenience with no proven shared cause yet ("treat as
+// workbench"). aggregateGroupPriorArt/buildGroupPatternHypotheses are pure
+// report builders; AgentLoopStore.beginGroup/promoteGroup (in store.ts) wire
+// them to the store's existing related/searchKnowledge/listPatterns
+// primitives -- no new scoring machinery, by design.
+// ---------------------------------------------------------------------------
+
+export const BEGIN_GROUP_SCHEMA_VERSION = 1 as const;
+export const PROMOTE_GROUP_SCHEMA_VERSION = 1 as const;
+
+/** Default cap on how many group members fan out through `related`. */
+export const DEFAULT_BEGIN_GROUP_TICKET_LIMIT = 30;
+/** Default cap on related candidates considered per member ticket. */
+export const DEFAULT_BEGIN_GROUP_RELATED_LIMIT = 10;
+/** Default cap on aggregated prior-art entries returned. */
+export const DEFAULT_BEGIN_GROUP_PRIOR_ART_LIMIT = 20;
+
+/** Cross-member prior art, deduped by candidate ticket and ranked by how often (and how strongly) it recurs. */
+export interface TicketGroupPriorArt {
+  /** The candidate ticket's display alias, e.g. "ISSUE-000042". */
+  key: string;
+  title: string;
+  status: string;
+  family: string;
+  /** Cumulative `related` score across every group member that surfaced this candidate. */
+  score: number;
+  /** How many distinct group members surfaced this candidate. */
+  occurrenceCount: number;
+  /** Aliases of the group members that surfaced this candidate. */
+  sourceTicketKeys: string[];
+  /** Merged, deduped relatedness signals (e.g. "family", "tag:export", "text:0.42") across all occurrences. */
+  signals: string[];
+  /** Carried over from the candidate's own resolution, when resolved -- reuses existing ticket fields rather than a separate knowledge join. */
+  resolutionSummary?: string | null;
+  guardStatus?: string | null;
+}
+
+export type PatternHypothesisConfidence = "low" | "medium" | "high";
+
+export type PatternHypothesisRecommendation =
+  | "compare_prior_art"
+  | "split_group"
+  | "promote_group"
+  | "treat_as_workbench";
+
+/** A ranked hypothesis about how (or whether) a Group should become -- or compare against -- a Pattern. */
+export interface TicketGroupPatternHypothesis {
+  title: string;
+  confidence: PatternHypothesisConfidence;
+  recommendation: PatternHypothesisRecommendation;
+  rationale: string;
+  ticketKeys: string[];
+  priorArtKeys: string[];
+  /** Set when the hypothesis points at an *existing* Pattern worth comparing against / reusing. */
+  suggestedPatternId?: string;
+  /**
+   * Set when the hypothesis suggests promoting to a *new* Pattern -- a default
+   * title `promote-group` can use. (Unlike Inti's deterministic `patternKey`
+   * slugs, AgentLoops assigns sequential Pattern ids at creation time, so a
+   * not-yet-created Pattern can only be suggested by title, not by id.)
+   */
+  suggestedPatternTitle?: string;
+}
+
+/**
+ * Cross-member prior-art aggregation (mirrors Inti's `aggregateGroupPriorArt`,
+ * adapted to AgentLoops' primitives): runs `store.related()` once per group
+ * member, then folds the resulting candidates by ticket -- summing `score`,
+ * counting `occurrenceCount`, and merging `signals` -- so a candidate that
+ * several members independently point at rises to the top.
+ *
+ * Deliberately leaner than Inti's version: AgentLoops' `related()` doesn't
+ * embed a `knowledge` object per candidate the way Inti's
+ * `IssueRelatedKnowledgeResult` does (rootCauseSummary/fixStrategy live in the
+ * separate `searchKnowledge` corpus, by design -- `related` and
+ * `searchKnowledge` stay independently composable). Rather than adding an N+1
+ * knowledge join here, this keeps to what `related` already returns and lets
+ * the orchestration's separate `familyKnowledge` search cover "how was this
+ * fixed" for the family as a whole.
+ */
+export function aggregateGroupPriorArt(
+  reports: PriorArtReport[],
+  limit: number,
+): TicketGroupPriorArt[] {
+  const byKey = new Map<string, TicketGroupPriorArt>();
+  for (const report of reports) {
+    const sourceKey = report.ticket.alias;
+    for (const candidate of report.related) {
+      const key = candidate.alias;
+      const existing = byKey.get(key) ?? {
+        key,
+        title: candidate.title,
+        status: candidate.status,
+        family: candidate.family,
+        score: 0,
+        occurrenceCount: 0,
+        sourceTicketKeys: [],
+        signals: [],
+      };
+      existing.score += Number(candidate.score || 0);
+      existing.occurrenceCount += 1;
+      if (!existing.sourceTicketKeys.includes(sourceKey)) existing.sourceTicketKeys.push(sourceKey);
+      for (const signal of candidate.signals ?? []) {
+        if (signal && !existing.signals.includes(signal)) existing.signals.push(signal);
+      }
+      byKey.set(key, existing);
+    }
+  }
+  return Array.from(byKey.values())
+    .sort(
+      (a, b) =>
+        b.occurrenceCount - a.occurrenceCount || b.score - a.score || a.key.localeCompare(b.key),
+    )
+    .slice(0, Math.max(1, limit));
+}
+
+const HIGH_OCCURRENCE_PRIOR_ART_THRESHOLD = 2;
+const MAX_HIGH_OCCURRENCE_PRIOR_ART = 5;
+const MAX_GROUP_HYPOTHESES = 8;
+
+function isTerminalPatternStatus(status: PatternStatus): boolean {
+  return status === "resolved";
+}
+
+function dominantFamily(tickets: Array<{ family: string }>): string {
+  const counts = new Map<string, number>();
+  for (const ticket of tickets) {
+    counts.set(ticket.family, (counts.get(ticket.family) ?? 0) + 1);
+  }
+  return (
+    Array.from(counts.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? ""
+  );
+}
+
+function groupTicketsByFamily(tickets: Ticket[]): Array<{ family: string; tickets: Ticket[] }> {
+  const byFamily = new Map<string, Ticket[]>();
+  for (const ticket of tickets) {
+    byFamily.set(ticket.family, [...(byFamily.get(ticket.family) ?? []), ticket]);
+  }
+  return Array.from(byFamily.entries())
+    .map(([family, members]) => ({ family, tickets: members }))
+    .sort((a, b) => b.tickets.length - a.tickets.length || a.family.localeCompare(b.family));
+}
+
+function memberAlias(ticket: Ticket): string {
+  return ticket.aliases[0] ?? ticket.id;
+}
+
+/**
+ * Ranked hypotheses about how this Group relates to the Pattern abstraction
+ * (mirrors Inti's `buildGroupPatternHypotheses`, generalized to AgentLoops'
+ * vocabulary -- see module doc comment). Up to 8 hypotheses across five shapes:
+ *
+ *  1. An existing active Pattern in the family may already cover this Group --
+ *     compare before creating another one.
+ *  2. A resolved (terminal) Pattern in the family may be recurring.
+ *  3. Resolved prior art recurs across multiple group members -- compare it.
+ *  4. Members split cleanly across >= 2 families -- likely several Patterns, not one.
+ *  5. Members share recurring, distinguishing wording (reusing the same
+ *     `autoKeywordClusters` machinery `ticketGroupsReport` already runs) --
+ *     candidate narrower symptom-Patterns.
+ *
+ * Falls back to "treat as workbench" when nothing else fired, or when the
+ * Group's basis is itself the least proof-bearing one (`custom` -- a
+ * project-defined rule match alone, like Inti's document-identity groups,
+ * doesn't prove a shared root cause).
+ */
+export function buildGroupPatternHypotheses(
+  group: TicketGroup,
+  priorArt: TicketGroupPriorArt[],
+  patterns: Pattern[],
+  memberTickets: Ticket[],
+): TicketGroupPatternHypothesis[] {
+  const hypotheses: TicketGroupPatternHypothesis[] = [];
+  const ticketKeys = group.tickets.map((member) => member.alias);
+  const terminalPattern = patterns.find((pattern) => isTerminalPatternStatus(pattern.status));
+  const activePattern = patterns.find((pattern) => !isTerminalPatternStatus(pattern.status));
+  const highOccurrencePriorArt = priorArt
+    .filter((entry) => entry.occurrenceCount >= HIGH_OCCURRENCE_PRIOR_ART_THRESHOLD)
+    .slice(0, MAX_HIGH_OCCURRENCE_PRIOR_ART);
+
+  if (activePattern) {
+    hypotheses.push({
+      title: `Existing Pattern may already cover ${group.title}`,
+      confidence: activePattern.status === "reopened" ? "high" : "medium",
+      recommendation: "compare_prior_art",
+      rationale: `${activePattern.id} is ${activePattern.status} in family ${activePattern.family}; compare its linked tickets before creating another Pattern.`,
+      ticketKeys,
+      priorArtKeys: highOccurrencePriorArt.map((entry) => entry.key),
+      suggestedPatternId: activePattern.id,
+    });
+  } else if (terminalPattern) {
+    hypotheses.push({
+      title: `Possible recurrence of resolved Pattern ${terminalPattern.id}`,
+      confidence: highOccurrencePriorArt.length > 0 ? "medium" : "low",
+      recommendation: "compare_prior_art",
+      rationale: `${terminalPattern.id} is ${terminalPattern.status}; decide whether this Group reopens it, supersedes it, or needs a narrower Pattern.`,
+      ticketKeys,
+      priorArtKeys: highOccurrencePriorArt.map((entry) => entry.key),
+      suggestedPatternId: terminalPattern.id,
+    });
+  }
+
+  if (highOccurrencePriorArt.length > 0) {
+    hypotheses.push({
+      title: `Resolved prior art recurs across ${highOccurrencePriorArt.length} historical match${highOccurrencePriorArt.length === 1 ? "" : "es"}`,
+      confidence: highOccurrencePriorArt.some((entry) => entry.occurrenceCount >= 3) ? "high" : "medium",
+      recommendation: "compare_prior_art",
+      rationale: highOccurrencePriorArt
+        .map(
+          (entry) =>
+            `${entry.key} matched ${entry.occurrenceCount} group ticket(s)${entry.resolutionSummary ? `; resolution: ${entry.resolutionSummary}` : ""}`,
+        )
+        .join(" "),
+      ticketKeys,
+      priorArtKeys: highOccurrencePriorArt.map((entry) => entry.key),
+      suggestedPatternTitle: `Recurring ${group.title} tickets`,
+    });
+  }
+
+  const familyGroups = groupTicketsByFamily(memberTickets).filter((entry) => entry.tickets.length >= 2);
+  if (familyGroups.length > 1) {
+    hypotheses.push({
+      title: "Group likely contains multiple Patterns split by family",
+      confidence: "medium",
+      recommendation: "split_group",
+      rationale: familyGroups.map((entry) => `${entry.family}: ${entry.tickets.length} ticket(s)`).join("; "),
+      ticketKeys,
+      priorArtKeys: highOccurrencePriorArt.map((entry) => entry.key),
+    });
+  }
+
+  const keywordSplits = autoKeywordClusters(memberTickets, DEFAULT_TICKET_GROUP_MIN_SIZE)
+    .map((cluster) => ({
+      cluster,
+      tickets: memberTickets.filter((ticket) => cluster.memberIds.has(ticket.id)),
+    }))
+    .filter((entry) => entry.tickets.length >= DEFAULT_TICKET_GROUP_MIN_SIZE && entry.tickets.length < memberTickets.length)
+    .sort((a, b) => b.tickets.length - a.tickets.length || a.cluster.bucket.localeCompare(b.cluster.bucket));
+
+  for (const entry of keywordSplits.slice(0, 3)) {
+    const keys = entry.tickets.map(memberAlias);
+    const label = keywordLabel(entry.cluster.tokens).replace(/^Keyword: /, "");
+    hypotheses.push({
+      title: `Candidate symptom Pattern: ${label}`,
+      confidence: entry.tickets.length >= 3 ? "medium" : "low",
+      recommendation: entry.tickets.length >= 3 ? "promote_group" : "compare_prior_art",
+      rationale: `${entry.tickets.length} ticket(s) share recurring, distinguishing wording (${label}) -- often a sign of the same symptom reported from different angles.`,
+      ticketKeys: keys,
+      priorArtKeys: priorArt
+        .filter((art) => art.sourceTicketKeys.some((key) => keys.includes(key)))
+        .map((art) => art.key)
+        .slice(0, 5),
+      suggestedPatternTitle: `Recurring: ${label}`,
+    });
+  }
+
+  if (hypotheses.length === 0 || group.basis === "custom") {
+    hypotheses.push({
+      title: `${group.title} is a Group workbench, not yet a proven Pattern`,
+      confidence: "low",
+      recommendation: "treat_as_workbench",
+      rationale:
+        group.basis === "custom"
+          ? "This Group is based on a project-defined rule match (see ticketGroups.customRules) -- useful for triage batching, but a shared rule match alone does not prove a shared root cause."
+          : "No strong historical or structural signal has converged yet; inspect member tickets and prior art before promoting.",
+      ticketKeys,
+      priorArtKeys: priorArt.slice(0, 5).map((entry) => entry.key),
+    });
+  }
+
+  return hypotheses.slice(0, MAX_GROUP_HYPOTHESES);
+}
+
+/** Locate one computed Group by its `key` (exact), its bucket suffix (e.g. "export_pipeline" maps to "family:export_pipeline"), or its title -- case-insensitive. Mirrors Inti's `findCliTicketGroup`. */
+export function findTicketGroup(report: TicketGroupsReport, identifier: string): TicketGroup | undefined {
+  const needle = identifier.trim().toLowerCase();
+  if (!needle) return undefined;
+  return (
+    report.groups.find((group) => group.key.toLowerCase() === needle) ??
+    report.groups.find((group) => group.key.toLowerCase().endsWith(`:${needle}`)) ??
+    report.groups.find((group) => group.title.toLowerCase() === needle)
+  );
+}
+
+/** Compose a human-readable provenance description for a promoted Pattern's `summary` -- prose, not structured metadata (see `Pattern.summary`). */
+export function composeGroupPromotionSummary(group: TicketGroup): string {
+  const parts = [
+    group.summary,
+    `Promoted from computed Ticket Group ${group.key} (${group.tickets.length} ticket(s), basis=${group.basis}).`,
+  ];
+  if (group.candidateSplits.length > 0) {
+    parts.push(
+      `Candidate narrower splits at promotion time: ${group.candidateSplits
+        .map((split) => `${split.key} (${split.count})`)
+        .join(", ")}.`,
+    );
+  }
+  return parts.filter((part) => Boolean(part && part.trim())).join(" ");
+}
+
+/** The dominant family among a Group's members -- the natural home for a Pattern discovered from it. Exported for `AgentLoopStore.beginGroup`/`promoteGroup`. */
+export function ticketGroupPatternFamily(group: TicketGroup): string {
+  return dominantFamily(group.tickets);
+}
+
+export interface BeginGroupOptions {
+  /** Cap on how many group members fan out through `related`. Default `DEFAULT_BEGIN_GROUP_TICKET_LIMIT`. */
+  ticketLimit?: number;
+  /** Cap on related candidates considered per member ticket. Default `DEFAULT_BEGIN_GROUP_RELATED_LIMIT`. */
+  relatedLimit?: number;
+  /** Cap on aggregated prior-art / family-knowledge entries returned. Default `DEFAULT_BEGIN_GROUP_PRIOR_ART_LIMIT`. */
+  priorArtLimit?: number;
+}
+
+export interface TicketGroupRelatedEntry {
+  ticket: { id: string; alias: string; family: string; status: string; title: string };
+  related: PriorArtReport["related"];
+}
+
+export interface BeginGroupReport {
+  schemaVersion: typeof BEGIN_GROUP_SCHEMA_VERSION;
+  generatedAt: string;
+  group: TicketGroup;
+  /** The Group's dominant member family -- where a Pattern discovered from it would naturally live. */
+  patternFamily: string;
+  activePatterns: Pattern[];
+  historicalPatterns: Pattern[];
+  priorArt: TicketGroupPriorArt[];
+  familyKnowledge: ResolutionKnowledgeReport;
+  relatedByTicket: TicketGroupRelatedEntry[];
+  hypotheses: TicketGroupPatternHypothesis[];
+  nextSteps: string[];
+}
+
+export interface PromoteGroupOptions {
+  /** Override the Pattern family to promote into. Defaults to the Group's dominant member family. */
+  family?: string;
+  /** Override the Pattern title (defaults to `Recurring <group.title> tickets`). */
+  title?: string;
+  /** Override the Pattern's `summary` (defaults to a composed provenance description -- see `composeGroupPromotionSummary`). */
+  summary?: string;
+  /** Attribution for the linking notes recorded on newly-linked tickets. Defaults to "agent". */
+  actor?: string;
+}
+
+export interface PromoteGroupResult {
+  schemaVersion: typeof PROMOTE_GROUP_SCHEMA_VERSION;
+  generatedAt: string;
+  /** "created" when a new Pattern was made; "reused" when an existing non-resolved Pattern in the family was found and updated instead -- idempotent like `attachPattern`. */
+  action: "created" | "reused";
+  group: TicketGroup;
+  pattern: Pattern;
+  /** Aliases of group members newly linked to the Pattern by this call (already-linked members are skipped). */
+  linkedTickets: string[];
+}
+
+const BEGIN_GROUP_NEXT_STEPS = [
+  "Decide whether this Group is a QA/triage workbench, a recurrence of prior art, one coherent Pattern, or several narrower Patterns.",
+  "If coherent, run promote-group with an explicit title/summary, then fix at the Pattern/root-cause level rather than ticket-by-ticket.",
+  "If the hypotheses suggest a split, inspect the candidate splits and consider promoting narrower Patterns before implementing.",
+  "Use the aggregated prior art and family knowledge to avoid repeating failed fixes or missing recurrence coverage.",
+] as const;
+
+export function beginGroupNextSteps(): string[] {
+  return [...BEGIN_GROUP_NEXT_STEPS];
 }

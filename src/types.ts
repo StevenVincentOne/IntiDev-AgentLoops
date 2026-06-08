@@ -251,6 +251,14 @@ export interface Pattern {
   createdAt: string;
   updatedAt: string;
   ticketIds: string[];
+  /**
+   * Optional free-text description, mirroring `Ticket.summary`/`resolutionSummary`.
+   * Populated (and refreshed) by `promote-group` with human-readable provenance —
+   * e.g. which computed Ticket Group it was promoted from, its basis, and any
+   * candidate splits — kept as prose rather than a structured metadata blob so
+   * it stays consistent with the rest of the schema's "thin but readable" style.
+   */
+  summary?: string;
 }
 
 /**

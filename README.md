@@ -95,6 +95,8 @@ state fixture; run it with `npm test`.
 - `agentloop workflow-repair [--dry-run]` fix that drift: reopen/resolve patterns to match their tickets
 - `agentloop near-duplicates` report open tickets whose title/summary look like the same problem
 - `agentloop groups [--family ..] [--min-size 2] [--limit 10]` broad triage clusters of open work worth reviewing together — not resolution objects (see Patterns); customize clustering vocabulary via `ticketGroups.customRules` in config
+- `agentloop begin-group <group-key> [--limit] [--prior-art-limit] [--ticket-limit]` "begin before you build" workbench for a computed Group: aggregates prior art and resolution knowledge across every member and ranks Pattern-discovery hypotheses — read-only, run before implementing fixes for the Group
+- `agentloop promote-group <group-key> [--title ...] [--summary ...] [--family ...] [--actor ...]` promote a computed Group into a trackable Pattern (find-or-reuse by family, link members, record provenance); idempotent and safe to re-run
 - `agentloop knowledge` search how prior resolved tickets were fixed
 - `agentloop knowledge-gaps` report resolved tickets lacking reusable knowledge
 - `agentloop related <id>` find prior-art tickets related to one ticket (on-the-fly, not persisted)
@@ -133,6 +135,7 @@ Read-only tools (annotated `readOnlyHint`):
 | `agentloop_workflow_audit` | patterns whose status disagrees with their linked tickets |
 | `agentloop_near_duplicates` | open tickets whose title/summary look like the same problem |
 | `agentloop_ticket_groups` | broad triage clusters of open work — "worth reviewing together," not resolution objects (see Patterns); each group surfaces narrower "candidate splits" |
+| `agentloop_begin_group` | "begin before you build" workbench for a computed Group: aggregated cross-member prior art, family Patterns/knowledge, and ranked Pattern-discovery hypotheses — run before implementing fixes for a Group |
 | `agentloop_search_knowledge` | search how prior resolved tickets were fixed |
 | `agentloop_knowledge_gaps` | resolved tickets lacking reusable knowledge |
 | `agentloop_related` | prior-art: tickets related to a given ticket (on-the-fly, not persisted) |
@@ -149,6 +152,7 @@ Write tools (only registered with `--write`):
 | `agentloop_guard` | record a regression-guard decision |
 | `agentloop_prior_art_refresh` | recompute + persist the prior-art graph (reinforce / decay / prune edges) |
 | `agentloop_workflow_repair` | fix `agentloop_workflow_audit` drift by reopening/resolving patterns to match their tickets (pass `dryRun: true` to preview without mutating) |
+| `agentloop_promote_group` | promote a computed Group into a trackable Pattern: find-or-reuse a Pattern in its dominant family, link members, record provenance via notes (idempotent — safe to re-run) |
 
 Each result is a JSON envelope with `schemaVersion` and `generatedAt`. The server
 reads/writes state from the `.agentloops/state.json` in its working directory, so

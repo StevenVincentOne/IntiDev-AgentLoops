@@ -72,6 +72,17 @@ export {
   TICKET_GROUPS_SCHEMA_VERSION,
   DEFAULT_TICKET_GROUP_MIN_SIZE,
   DEFAULT_TICKET_GROUP_LIMIT,
+  aggregateGroupPriorArt,
+  buildGroupPatternHypotheses,
+  findTicketGroup,
+  composeGroupPromotionSummary,
+  ticketGroupPatternFamily,
+  beginGroupNextSteps,
+  BEGIN_GROUP_SCHEMA_VERSION,
+  PROMOTE_GROUP_SCHEMA_VERSION,
+  DEFAULT_BEGIN_GROUP_TICKET_LIMIT,
+  DEFAULT_BEGIN_GROUP_RELATED_LIMIT,
+  DEFAULT_BEGIN_GROUP_PRIOR_ART_LIMIT,
 } from "./ticket-groups";
 export type {
   TicketGroupOptions,
@@ -80,6 +91,15 @@ export type {
   TicketGroupMember,
   TicketGroupCandidateSplit,
   TicketGroupBasisKind,
+  TicketGroupPriorArt,
+  TicketGroupPatternHypothesis,
+  PatternHypothesisConfidence,
+  PatternHypothesisRecommendation,
+  BeginGroupOptions,
+  BeginGroupReport,
+  TicketGroupRelatedEntry,
+  PromoteGroupOptions,
+  PromoteGroupResult,
 } from "./ticket-groups";
 export { resolutionKnowledge, knowledgeGaps, KNOWLEDGE_SCHEMA_VERSION } from "./knowledge";
 export type {

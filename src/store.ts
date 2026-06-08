@@ -30,7 +30,26 @@ import {
   WorkflowRepairResult,
 } from "./workflow-repair";
 import { nearDuplicateReport, NearDuplicateOptions, NearDuplicateReport } from "./near-duplicates";
-import { ticketGroupsReport, TicketGroupOptions, TicketGroupsReport } from "./ticket-groups";
+import {
+  aggregateGroupPriorArt,
+  beginGroupNextSteps,
+  BEGIN_GROUP_SCHEMA_VERSION,
+  BeginGroupOptions,
+  BeginGroupReport,
+  buildGroupPatternHypotheses,
+  composeGroupPromotionSummary,
+  DEFAULT_BEGIN_GROUP_PRIOR_ART_LIMIT,
+  DEFAULT_BEGIN_GROUP_RELATED_LIMIT,
+  DEFAULT_BEGIN_GROUP_TICKET_LIMIT,
+  findTicketGroup,
+  PROMOTE_GROUP_SCHEMA_VERSION,
+  PromoteGroupOptions,
+  PromoteGroupResult,
+  ticketGroupPatternFamily,
+  ticketGroupsReport,
+  TicketGroupOptions,
+  TicketGroupsReport,
+} from "./ticket-groups";
 import {
   resolutionKnowledge,
   knowledgeGaps,
@@ -454,6 +473,178 @@ export class AgentLoopStore {
       limit: options.limit ?? overrides.limit,
       customRules: options.customRules ?? overrides.customRules,
     });
+  }
+
+  /**
+   * "Begin before you build" for a computed Ticket Group: treats the Group as
+   * a workbench rather than a resolution object — fans `related()` out across
+   * its members (capped), aggregates the cross-member prior art, looks up
+   * active/historical Patterns and resolution knowledge in the Group's
+   * dominant family, and surfaces ranked Pattern-discovery hypotheses. Purely
+   * read-only — composes existing primitives (`related`, `listPatterns`,
+   * `searchKnowledge`) rather than introducing new scoring machinery. Mirrors
+   * Inti's `beginTicketGroup` (see `ticket-groups.ts` module doc comment for
+   * the full vocabulary mapping).
+   */
+  async beginGroup(identifier: string, options: BeginGroupOptions = {}): Promise<BeginGroupReport> {
+    const state = await this.ensureInitialized();
+    const report = await this.ticketGroups({});
+    const group = findTicketGroup(report, identifier);
+    if (!group) {
+      throw new Error(`Ticket group not found: ${identifier}`);
+    }
+
+    const ticketLimit = Math.max(1, options.ticketLimit ?? DEFAULT_BEGIN_GROUP_TICKET_LIMIT);
+    const relatedLimit = Math.max(1, options.relatedLimit ?? DEFAULT_BEGIN_GROUP_RELATED_LIMIT);
+    const priorArtLimit = Math.max(1, options.priorArtLimit ?? DEFAULT_BEGIN_GROUP_PRIOR_ART_LIMIT);
+
+    const memberTickets = group.tickets
+      .slice(0, ticketLimit)
+      .map((member) => state.tickets.find((ticket) => ticket.id === member.id))
+      .filter((ticket): ticket is Ticket => Boolean(ticket));
+
+    const relatedReports = await Promise.all(
+      memberTickets.map((ticket) => this.related(ticket.id, { limit: relatedLimit })),
+    );
+
+    // `RelatedTicket` (unlike Inti's candidates) doesn't embed per-candidate
+    // resolution knowledge, so `aggregateGroupPriorArt` can't populate
+    // `resolutionSummary`/`guardStatus` on its own — enrich its pure output
+    // here from the actual ticket records once we know which aliases matter.
+    const ticketByKey = new Map<string, Ticket>();
+    for (const ticket of state.tickets) {
+      ticketByKey.set(ticket.id, ticket);
+      for (const alias of ticket.aliases) ticketByKey.set(alias, ticket);
+    }
+    const priorArt = aggregateGroupPriorArt(relatedReports, priorArtLimit).map((entry) => {
+      const ticket = ticketByKey.get(entry.key);
+      if (!ticket) return entry;
+      return {
+        ...entry,
+        resolutionSummary: ticket.resolutionSummary ?? entry.resolutionSummary,
+        guardStatus: ticket.guardStatus ?? entry.guardStatus,
+      };
+    });
+
+    const patternFamily = ticketGroupPatternFamily(group) || this.config.patterns.defaultFamily;
+    const [allActivePatterns, allPatterns, familyKnowledge] = await Promise.all([
+      this.listPatterns({ status: "active" }),
+      this.listPatterns({ status: "all" }),
+      this.searchKnowledge({
+        family: patternFamily,
+        query: [group.title, ...memberTickets.slice(0, 12).map((ticket) => ticket.title)]
+          .filter(Boolean)
+          .join(" "),
+        limit: priorArtLimit,
+      }),
+    ]);
+    const activePatterns = allActivePatterns.filter((pattern) => pattern.family === patternFamily);
+    const historicalPatterns = allPatterns.filter((pattern) => pattern.family === patternFamily);
+
+    const hypotheses = buildGroupPatternHypotheses(group, priorArt, historicalPatterns, memberTickets);
+
+    return {
+      schemaVersion: BEGIN_GROUP_SCHEMA_VERSION,
+      generatedAt: nowIso(),
+      group,
+      patternFamily,
+      activePatterns,
+      historicalPatterns,
+      priorArt,
+      familyKnowledge,
+      relatedByTicket: relatedReports.map((related, index) => ({
+        ticket: {
+          id: related.ticket.id,
+          alias: related.ticket.alias,
+          family: related.ticket.family,
+          status: memberTickets[index]?.status ?? "",
+          title: related.ticket.title,
+        },
+        related: related.related,
+      })),
+      hypotheses,
+      nextSteps: beginGroupNextSteps(),
+    };
+  }
+
+  /**
+   * Promote a computed Ticket Group to a Pattern — a write operation, but a
+   * leaner one than Inti's `promoteTicketGroup`: rather than importing Inti's
+   * richer `metadata`/`links[].relation` machinery (a structural mismatch with
+   * AgentLoops' intentionally thin `Pattern`), this reuses the existing
+   * `patternId`/`ticketIds` linking idiom `attachPattern` already established,
+   * stashes human-readable provenance in the new optional `Pattern.summary`
+   * (prose, not a metadata blob — see its doc comment), and records a
+   * `related_history` note on each newly-linked ticket via the existing
+   * `addTicketNote` primitive. Idempotent: re-running finds-or-reuses the
+   * family's non-resolved Pattern and only links members not already linked.
+   */
+  async promoteGroup(identifier: string, options: PromoteGroupOptions = {}): Promise<PromoteGroupResult> {
+    const state = await this.ensureInitialized();
+    const report = await this.ticketGroups({});
+    const group = findTicketGroup(report, identifier);
+    if (!group) {
+      throw new Error(`Ticket group not found: ${identifier}`);
+    }
+
+    const family = options.family || ticketGroupPatternFamily(group) || this.config.patterns.defaultFamily;
+    const title = options.title || `Recurring ${group.title} tickets`;
+    const summaryText = options.summary || composeGroupPromotionSummary(group);
+    const actor = options.actor || "agent";
+
+    let pattern = state.patterns.find((entry) => entry.family === family && entry.status !== "resolved");
+    const action: "created" | "reused" = pattern ? "reused" : "created";
+    if (!pattern) {
+      pattern = {
+        id: patternId(++state.nextPatternSeq),
+        family,
+        title,
+        status: "open",
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
+        ticketIds: [],
+        summary: summaryText,
+      };
+      state.patterns.push(pattern);
+    } else {
+      pattern.summary = summaryText;
+      pattern.updatedAt = nowIso();
+    }
+
+    const linkedTickets: string[] = [];
+    for (const member of group.tickets) {
+      const ticket = state.tickets.find((entry) => entry.id === member.id);
+      if (!ticket || pattern.ticketIds.includes(ticket.id)) continue;
+      pattern.ticketIds.push(ticket.id);
+      ticket.patternId = pattern.id;
+      ticket.notes.push({
+        id: `${ticket.id}-note-${Date.now()}-${linkedTickets.length}`,
+        type: "related_history",
+        body: this.redact(
+          `Linked to ${pattern.id} via promote-group from Group ${group.key} ("${group.title}").`,
+          this.noteCtx(ticket),
+        ),
+        author: actor,
+        createdAt: nowIso(),
+      });
+      ticket.updatedAt = nowIso();
+      linkedTickets.push(ticket.aliases[0] ?? ticket.id);
+    }
+    if (pattern.ticketIds.length >= 2 && pattern.status === "open") {
+      pattern.status = "active";
+    }
+    pattern.updatedAt = nowIso();
+    state.updatedAt = nowIso();
+    await this.persist();
+
+    return {
+      schemaVersion: PROMOTE_GROUP_SCHEMA_VERSION,
+      generatedAt: nowIso(),
+      action,
+      group,
+      pattern,
+      linkedTickets,
+    };
   }
 
   async searchKnowledge(

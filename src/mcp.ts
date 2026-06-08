@@ -545,6 +545,35 @@ export function createMcpServer(
   );
 
   server.registerTool(
+    "agentloop_begin_group",
+    {
+      title: "Begin a Ticket Group (workbench + Pattern discovery)",
+      description:
+        "Read-only 'begin before you build' report for a computed Ticket Group: identifies the group by key (from agentloop_ticket_groups, e.g. 'family:export_pipeline'), aggregates cross-member prior art via the same scoring agentloop_related uses, looks up active/historical Patterns and resolution knowledge in the group's dominant family, and surfaces ranked hypotheses (with a confidence and a recommendation — compare_prior_art / split_group / promote_group / treat_as_workbench) about whether the group is a duplicate of known work, one coherent Pattern, several narrower ones, or just a triage convenience. Run this before implementing fixes for a Group's members.",
+      inputSchema: {
+        id: z.string().describe("The Group's key, e.g. 'family:export_pipeline' (see agentloop_ticket_groups)"),
+        relatedLimit: z.number().int().positive().optional().describe("Cap on related candidates considered per member ticket"),
+        priorArtLimit: z.number().int().positive().optional().describe("Cap on aggregated prior-art / family-knowledge entries returned"),
+        ticketLimit: z.number().int().positive().optional().describe("Cap on how many group members fan out through agentloop_related"),
+      },
+      annotations: readOnly,
+    },
+    async (args) => {
+      try {
+        return ok(
+          await store.beginGroup(args.id, {
+            relatedLimit: args.relatedLimit,
+            priorArtLimit: args.priorArtLimit,
+            ticketLimit: args.ticketLimit,
+          }),
+        );
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  server.registerTool(
     "agentloop_search_knowledge",
     {
       title: "Search resolution knowledge",
@@ -769,6 +798,37 @@ function registerWriteTools(server: McpServer, store: AgentLoopStore): void {
     async (args) => {
       try {
         return ok(await guardTool(store, args));
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "agentloop_promote_group",
+    {
+      title: "Promote a Ticket Group to a Pattern",
+      description:
+        "Promote a computed Ticket Group (identified by key, e.g. 'family:export_pipeline' — see agentloop_ticket_groups, and inspect it first with agentloop_begin_group) to a Pattern: finds-or-reuses a non-resolved Pattern in the group's dominant family, links member tickets that aren't linked yet (reusing the existing patternId/ticketIds idiom), records human-readable provenance in the Pattern's `summary` (which Group it came from, its basis, candidate splits), and appends a `related_history` note to each newly-linked ticket. Idempotent — safe to re-run as a Group's membership grows. Mutates and saves ledger state.",
+      inputSchema: {
+        id: z.string().describe("The Group's key, e.g. 'family:export_pipeline' (see agentloop_ticket_groups)"),
+        title: z.string().optional().describe("Override the Pattern title (defaults to 'Recurring <group title> tickets')"),
+        summary: z.string().optional().describe("Override the Pattern summary (defaults to a composed provenance description)"),
+        family: z.string().optional().describe("Override the Pattern family (defaults to the group's dominant member family)"),
+        actor: z.string().optional().describe("Attribution for the linking notes recorded on newly-linked tickets (defaults to 'agent')"),
+      },
+      annotations: write,
+    },
+    async (args) => {
+      try {
+        return ok(
+          await store.promoteGroup(args.id, {
+            title: args.title,
+            summary: args.summary,
+            family: args.family,
+            actor: args.actor,
+          }),
+        );
       } catch (error) {
         return fail(error);
       }
