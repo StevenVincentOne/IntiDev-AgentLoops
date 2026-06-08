@@ -11,6 +11,7 @@ import {
   Ticket,
   TicketRedactor,
   TicketStatus,
+  VerificationBrief,
 } from "./types";
 import { requiredFields } from "./config";
 import { resolveRedactor } from "./redaction";
@@ -22,6 +23,12 @@ import {
   SourceConvergenceReport,
 } from "./convergence";
 import { guardGapReport, GuardGapOptions, GuardGapReport } from "./guards";
+import {
+  assertVerificationBriefForResolution,
+  CascadeResolveInput,
+  CascadeResolveResult,
+  planCascadeVerification,
+} from "./verification";
 import { workflowAuditReport, WorkflowAuditOptions, WorkflowAuditReport } from "./workflow-audit";
 import {
   workflowRepairPlan,
@@ -230,6 +237,15 @@ export class AgentLoopStore {
   }
 
   async resolveTicket(input: ResolveInput): Promise<Ticket> {
+    // Validate *before* transitioning: an evidence-sensitive resolution that
+    // fails the verification-brief guardrails should not move the ticket to
+    // "resolved" first and then throw, leaving it in a half-resolved state.
+    const existing = await this.getTicketByAnyId(input.id);
+    if (!existing) {
+      throw new Error(`Ticket not found: ${input.id}`);
+    }
+    assertVerificationBriefForResolution(existing, input, this.config);
+
     const ticket = await this.transitionTicket(input.id, "resolved");
     const ctx = (field: string): RedactionContext => ({
       field,
@@ -244,6 +260,9 @@ export class AgentLoopStore {
     ticket.guardStatus = input.guardStatus ?? "none";
     ticket.guardSummary = input.guardSummary
       ? this.redact(input.guardSummary, ctx("guardSummary"))
+      : undefined;
+    ticket.verificationBrief = input.verificationBrief
+      ? this.redactVerificationBrief(input.verificationBrief, ctx)
       : undefined;
     await this.persist();
     return ticket;
@@ -303,6 +322,23 @@ export class AgentLoopStore {
 
   private noteCtx(ticket: Ticket): RedactionContext {
     return { field: "note", ticketKind: ticket.kind, source: ticket.source };
+  }
+
+  /** Redacts every free-text field of a `VerificationBrief` before persisting it, mirroring how resolution summaries/notes are redacted. */
+  private redactVerificationBrief(brief: VerificationBrief, ctx: (field: string) => RedactionContext): VerificationBrief {
+    return {
+      claimScope: brief.claimScope,
+      affectedArtifactIds: brief.affectedArtifactIds?.map((id) => this.redact(id, ctx("verificationBrief.affectedArtifactIds"))),
+      reportedLocations: brief.reportedLocations?.map((loc) =>
+        this.redact(loc, ctx("verificationBrief.reportedLocations")),
+      ),
+      verificationPerformed: brief.verificationPerformed.map((method) =>
+        this.redact(method, ctx("verificationBrief.verificationPerformed")),
+      ),
+      coverage: this.redact(brief.coverage, ctx("verificationBrief.coverage")),
+      agentJudgment: brief.agentJudgment,
+      reason: this.redact(brief.reason, ctx("verificationBrief.reason")),
+    };
   }
 
   /** Manually link a ticket to an existing GitHub Issue by its web URL. */
@@ -385,6 +421,68 @@ export class AgentLoopStore {
     state.updatedAt = nowIso();
     await this.persist();
     return pattern;
+  }
+
+  /**
+   * Resolves a Pattern and cascades the *same* resolution narrative/evidence
+   * to every not-yet-resolved ticket linked to it (the multi-ticket
+   * counterpart to `resolveTicket` — generalized from Inti's
+   * `resolve-pattern --resolve-linked`).
+   *
+   * This is exactly the operation the originating bug warns about: closing
+   * several tickets at once from one evidence bundle. So before applying it,
+   * `planCascadeVerification` counts how many linked tickets fall in a
+   * configured evidence-sensitive domain/kind and, when more than one does,
+   * escalates the fresh-evidence and broad-coverage guardrails
+   * (`assertVerificationBriefForResolution`'s rules 5/6) for *all* of them —
+   * "Pattern/group cascade resolution should require stronger coverage than
+   * single-ticket resolution," regardless of how the agent labeled
+   * `verificationBrief.claimScope`. Validation runs for every linked ticket
+   * before any mutation, so a bad cascade fails atomically rather than
+   * resolving some tickets and not others.
+   */
+  async cascadeResolvePattern(input: CascadeResolveInput): Promise<CascadeResolveResult> {
+    const state = await this.ensureInitialized();
+    const pattern = state.patterns.find((entry) => entry.id === input.patternId);
+    if (!pattern) {
+      throw new Error(`Pattern not found: ${input.patternId}`);
+    }
+
+    const allLinked = pattern.ticketIds
+      .map((id) => state.tickets.find((entry) => entry.id === id))
+      .filter((entry): entry is Ticket => Boolean(entry));
+    const alreadyResolvedTickets = allLinked.filter((entry) => entry.status === "resolved");
+    const toResolve = allLinked.filter((entry) => entry.status !== "resolved");
+
+    const { escalate: escalatedVerification, optionsFor } = planCascadeVerification(toResolve, this.config);
+
+    // Validate every linked ticket up front — a cascade either fully applies or not at all.
+    for (const ticket of toResolve) {
+      assertVerificationBriefForResolution(ticket, input, this.config, optionsFor(ticket));
+    }
+
+    const resolvedTickets: Ticket[] = [];
+    for (const ticket of toResolve) {
+      const resolved = await this.resolveTicket({
+        id: ticket.id,
+        summary: input.summary,
+        verification: input.verification,
+        guardStatus: input.guardStatus,
+        guardSummary: input.guardSummary,
+        verificationBrief: input.verificationBrief,
+      });
+      resolvedTickets.push(resolved);
+    }
+
+    if (pattern.status !== "resolved") {
+      pattern.status = "resolved";
+      pattern.updatedAt = nowIso();
+      pattern.title = `${pattern.title} (resolved: ${input.summary})`;
+    }
+    state.updatedAt = nowIso();
+    await this.persist();
+
+    return { pattern, resolvedTickets, alreadyResolvedTickets, escalatedVerification };
   }
 
   async summary() {

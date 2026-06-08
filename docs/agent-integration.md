@@ -83,6 +83,20 @@ matching MCP tool name in parentheses.
   command(s)>` and capture the result. Then resolve with `agentloop resolve
   <id> --summary "..." --verification "<command + result>"`
   (`agentloop_resolve`).
+- **Evidence-sensitive resolutions need a verification brief, not just a
+  command transcript**: if your project configures `verification` (see
+  [Customizing for your project](#customizing-for-your-project) and
+  [Verification briefs](#verification-briefs-deterministic-guardrails-vs-agent-judgment)
+  below) and this ticket's family/kind matches, `agentloop resolve` /
+  `agentloop_resolve` will *reject* the resolution unless you also pass
+  `--verification-brief '{ "claimScope": ..., "verificationPerformed": [...],
+  "coverage": "...", "agentJudgment": "sufficient", "reason": "..." }'`
+  (`verificationBrief` for the MCP tool). Raw commands/logs are not enough by
+  themselves — state what you verified, what scope you're claiming, what
+  coverage you achieved, and *why* that proves the fix. Resolving a Pattern
+  and cascading to its linked tickets (`agentloop resolve-pattern <pattern-id>
+  --summary ...`, `agentloop_resolve_pattern`) faces *stricter* checks than a
+  single ticket — see that section before using it.
 - For meaningful resolved bugs, incidents, and user-reported defects, record
   a regression-guard decision: `agentloop guard <id> --guard-status
   guard_added|guard_existing|guard_waived|guard_deferred --guard-summary
@@ -112,6 +126,113 @@ read/write loops an agent (or a scheduled job) can run on a cadence:
   are usually your highest-signal root-cause candidates; triage those first.
 ```
 
+## Verification briefs: deterministic guardrails vs. agent judgment
+
+Some domains are easy to mark "fixed" on weak evidence — a document/export/
+render pipeline whose output quality is hard to eyeball from a log line, a
+data-migration whose correctness depends on coverage you can't grep for, an
+integration whose "it works" claim hinges on which environment you actually
+hit. AgentLoops calls these **evidence-sensitive** domains, and a project opts
+in by configuring `verification.sensitiveFamilyPatterns` (and optionally
+`sensitiveKinds`, `artifactIdPattern`, and the fresh/replay/broad-coverage
+vocabulary — see [config](config.md)). Tickets outside a configured domain keep
+the lightweight `agentloop resolve --summary ... --verification ...` path
+unchanged — this section only applies once a project opts in.
+
+**The problem this solves**: a deterministic rule that just checks "was
+*something* verified?" can be satisfied by evidence that proves far less than
+it's being treated as proving — e.g. cascade-resolving a multi-ticket Pattern
+because *one* page/region was replayed against the new code. That replay is
+real evidence, but it proves a narrow case, not the broad claim being used to
+close everything linked to it.
+
+**The fix is not a smarter deterministic judge** — rules can check that
+evidence has the right *shape*; they cannot decide whether it actually proves
+a given claim. So AgentLoops splits the job:
+
+- **Deterministic rules act as guardrails.** When a resolution targets a
+  configured evidence-sensitive family/kind, `agentloop resolve` /
+  `agentloop_resolve` (and the cascade form, `agentloop resolve-pattern` /
+  `agentloop_resolve_pattern`) require a structured `verificationBrief` and
+  check that it's *internally coherent*: a sufficiency judgment was actually
+  made, the reason isn't a placeholder, known affected ids are named,
+  recurrences and Pattern/Group/cascade claims cite fresh/end-to-end methods
+  rather than replay-only proof, and multi-ticket claims use broad-coverage
+  language. These are the rules in `assertVerificationBriefForResolution`
+  (`src/verification.ts`) — see that module's doc comment for the full
+  numbered list.
+- **Agent reasoning supplies the actual sufficiency judgment.** The brief's
+  `agentJudgment` and `reason` fields are where *you* state, in your own
+  words, whether the evidence proves the claimed scope and why. Rules can
+  confirm you made that call and that it's substantive; only you can make it
+  correctly.
+
+### The brief shape
+
+```json
+{
+  "claimScope": "single_ticket | group | pattern | cascade",
+  "affectedArtifactIds": ["DOC-1001"],
+  "reportedLocations": ["chapter_03 page 220", "export route /books/9098350"],
+  "verificationPerformed": ["targeted reupload", "post-ingest scan", "browser inspection"],
+  "coverage": "all reported instances in the targeted page ranges",
+  "agentJudgment": "sufficient",
+  "reason": "The fresh targeted reupload exercised the affected artifact after the fix, and every reported instance now renders correctly."
+}
+```
+
+Pass it as `--verification-brief '<json>'` on the CLI or `verificationBrief`
+on `agentloop_resolve`/`agentloop_resolve_pattern`. It's persisted on the
+ticket (`Ticket.verificationBrief`) so the evidence that justified closing it
+stays auditable later.
+
+### What the guardrails actually require
+
+- **A brief at all** — for evidence-sensitive family + kind combinations;
+  everything else is unaffected.
+- **An explicit sufficiency call** — `agentJudgment` must be one of the
+  configured values (default `sufficient`/`verified`/`proven`); "looks fine"
+  or "should be okay" don't count.
+- **A substantive `reason`** — long enough to be an actual explanation, not
+  "fixed" or "should work now".
+- **Known affected ids named** — if `verification.artifactIdPattern` can
+  extract an id from the ticket's own title/summary/tags, the brief or
+  evidence text must name it. A claim that doesn't mention the thing it's
+  supposedly about isn't checkable.
+- **Fresh/end-to-end evidence for recurrences and cascades** — if the ticket
+  carries a prior-work cue (`priorArtHint: previously_ticketed |
+  existing_pattern` — reusing the *existing* hint field rather than inventing
+  new "history signal" schema) or the brief claims a `group`/`pattern`/
+  `cascade` scope, replay-only/unit-only methods are not enough:
+  `verificationPerformed` must include something that exercises live or
+  freshly produced output (a reupload, full reprocess, post-ingest scan,
+  browser/live check — see `verification.freshVerificationPatterns`).
+- **Broad-coverage language for multi-ticket claims** — `group`/`pattern`/
+  `cascade` claims must describe coverage in terms like "all reported
+  instances", "every linked ticket", or "full <artifact/workflow>"
+  (`verification.broadCoveragePatterns`); narrow per-instance language cannot
+  justify closing several tickets at once.
+- **Replay/local/unit evidence can close only a narrow claim** — it's good
+  diagnostic evidence and it *can* close a single ticket, but only when the
+  claim scope is `single_ticket`, the ticket carries no recurrence cue, and
+  the affected id is named (i.e. the stored/replayed artifact is provably the
+  true input to the changed code path and covers the reported instance).
+  Anything broader needs fresh or end-to-end proof.
+
+### Pattern/Group cascade resolution requires *more*, not the same
+
+`agentloop resolve-pattern <pattern-id> --summary ... [--verification-brief
+<json>]` (`agentloop_resolve_pattern`) resolves a Pattern and applies the same
+evidence to every not-yet-resolved ticket linked to it — exactly the operation
+that can close many tickets from one evidence bundle, and exactly the
+operation the originating bug exploited. Before applying it, AgentLoops counts
+how many linked tickets fall in a configured evidence-sensitive domain/kind;
+once **two or more** do, it escalates the fresh-evidence and broad-coverage
+requirements for *all* of them, regardless of how the brief labels its own
+`claimScope` (the result reports this as `escalatedVerification: true`).
+Validation runs for every linked ticket before any of them are mutated, so a
+bad cascade fails atomically rather than partially resolving the Pattern.
+
 ## Customizing for your project
 
 Fill in the placeholders the way you would for `ticketGroups.customRules` or
@@ -132,6 +253,15 @@ Fill in the placeholders the way you would for `ticketGroups.customRules` or
 - **Stricter or looser gates** — e.g. some teams want every `bug`/`incident`
   resolution to require `guard_added` specifically (no waiving); encode that
   as a rule here, not as a one-off reminder.
+- **Evidence-sensitive domains** — if your project has output that's easy to
+  mark "fixed" on weak evidence (a render/export/migration pipeline, an
+  integration whose correctness depends on which environment you hit, ...),
+  configure `verification.sensitiveFamilyPatterns` (and optionally
+  `sensitiveKinds`/`artifactIdPattern`/the fresh-vs-replay-vs-broad-coverage
+  vocabulary) so `agentloop resolve`/`agentloop resolve-pattern` require a
+  structured `verificationBrief` for them — see [Verification briefs](#verification-briefs-deterministic-guardrails-vs-agent-judgment)
+  and [config](config.md). Do not hardcode a domain's artifact vocabulary into
+  agent instructions; express it here so the guardrails and the playbook agree.
 
 ## Why a playbook, not just MCP tool descriptions
 

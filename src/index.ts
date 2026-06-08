@@ -101,6 +101,27 @@ export type {
   PromoteGroupOptions,
   PromoteGroupResult,
 } from "./ticket-groups";
+export {
+  assertVerificationBriefForResolution,
+  isSensitiveFamily,
+  requiresVerificationBrief,
+  extractKnownArtifactIds,
+  carriesPriorWorkCue,
+  isSufficientJudgment,
+  planCascadeVerification,
+  DEFAULT_SENSITIVE_KINDS,
+  DEFAULT_SUFFICIENT_JUDGMENTS,
+  DEFAULT_FRESH_VERIFICATION_PATTERNS,
+  DEFAULT_REPLAY_VERIFICATION_PATTERNS,
+  DEFAULT_BROAD_COVERAGE_PATTERNS,
+  MIN_VERIFICATION_REASON_LENGTH,
+} from "./verification";
+export type {
+  VerificationClaimScope,
+  VerificationAssertionOptions,
+  CascadeResolveInput,
+  CascadeResolveResult,
+} from "./verification";
 export { resolutionKnowledge, knowledgeGaps, KNOWLEDGE_SCHEMA_VERSION } from "./knowledge";
 export type {
   KnowledgeEntry,

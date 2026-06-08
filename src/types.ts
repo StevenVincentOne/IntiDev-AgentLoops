@@ -25,6 +25,44 @@ export type PriorArtHint =
   | "existing_pattern"
   | "adjacent_issues";
 
+/**
+ * How broad a fix is being claimed in a `VerificationBrief`: a single ticket,
+ * a computed Group, a tracked Pattern, or a cascade across linked tickets.
+ * Group/Pattern/cascade claims face stricter guardrails than single-ticket
+ * ones — see `verification.ts`.
+ */
+export type VerificationClaimScope = "single_ticket" | "group" | "pattern" | "cascade";
+
+/**
+ * A structured account of what was verified before claiming a fix is proven,
+ * required for "evidence-sensitive" tickets/Patterns before they can be
+ * resolved with high confidence (see `ProjectConfig.verification` and
+ * `verification.ts`). Generalized from Inti's Reader-specific document
+ * verification brief: deterministic rules check that the brief is present,
+ * internally coherent, and names the right scope; the agent supplies the
+ * actual judgment about whether the evidence proves the claim
+ * (`agentJudgment`/`reason`) — rules keep the evidence honest, the agent
+ * decides whether it is sufficient. Raw commands/logs are not enough by
+ * themselves: an agent must state what was verified, what scope was claimed,
+ * what coverage was achieved, and why that evidence is sufficient.
+ */
+export interface VerificationBrief {
+  /** How broad the fix is being claimed to be. */
+  claimScope: VerificationClaimScope;
+  /** Known affected artifact/entity ids (document ids, record ids, routes, etc.) the fix claims to cover. */
+  affectedArtifactIds?: string[];
+  /** Where the issue was reported/reproduced — pages, routes, sections, screenshots, stack traces, etc. */
+  reportedLocations?: string[];
+  /** What was actually done to verify, e.g. "targeted reupload", "full reprocess", "current-code replay", "unit test", "browser inspection". */
+  verificationPerformed: string[];
+  /** How much of the claimed scope the verification covered, in prose, e.g. "all reported instances in targeted page ranges". */
+  coverage: string;
+  /** The agent's sufficiency judgment — the part deterministic rules cannot supply (e.g. "sufficient"). */
+  agentJudgment: string;
+  /** Why this evidence proves the claimed fix scope. */
+  reason: string;
+}
+
 export type Severity = "low" | "medium" | "high" | "critical";
 
 export type Confidence = "low" | "medium" | "high";
@@ -120,6 +158,47 @@ export interface ProjectConfig {
    */
   storage?: {
     databaseUrl?: string;
+  };
+  /**
+   * Optional config defining "artifact/output-sensitive" domains — ticket
+   * families/kinds whose resolutions are easy to mark fixed on weak evidence
+   * (e.g. a document/export/render pipeline whose output quality is hard to
+   * eyeball from logs alone — the kind of domain where Inti found tickets and
+   * Patterns being closed on a single narrow replay that proved far less than
+   * it was treated as proving). When a resolution matches a configured
+   * sensitive family + kind, `resolveTicket` (and Pattern/Group cascade
+   * resolution) require a structured `VerificationBrief` and apply the rules
+   * in `verification.ts` as guardrails — deterministic checks that the right
+   * *shape* of evidence is present, while the agent supplies the actual
+   * sufficiency *judgment* (`agentJudgment`/`reason`).
+   *
+   * Entirely opt-in and domain-agnostic: nothing here hardcodes a particular
+   * project's artifact vocabulary (e.g. no "Reader"/"document" names baked
+   * in). Ships with no sensitive domains configured, so every ticket keeps
+   * the lightweight resolution path until a host project opts in by setting
+   * `sensitiveFamilyPatterns`.
+   */
+  verification?: {
+    /** Regex sources matched against `Ticket.family` marking a domain as evidence-sensitive. Empty/absent disables the whole feature. */
+    sensitiveFamilyPatterns?: string[];
+    /** Ticket kinds that require a brief when resolved in a sensitive family. Defaults to `["bug", "incident"]`. */
+    sensitiveKinds?: TicketKind[];
+    /**
+     * Single-capture-group regex extracting "known affected artifact/entity
+     * ids" from a ticket's title/summary/tags (e.g. a document id, order id,
+     * route, correlation key) — generalizes Inti's `correlation_key`-derived
+     * document-id checks without inventing a new structured Ticket field.
+     * Omit if the domain has no such concept; rule 4 then never applies.
+     */
+    artifactIdPattern?: string;
+    /** Regex sources recognizing "fresh"/end-to-end verification language (reuploads, full reprocesses, post-ingest scans, live/browser checks) — required for recurrences and Group/Pattern/cascade claims. Generic defaults apply when omitted. */
+    freshVerificationPatterns?: string[];
+    /** Regex sources recognizing replay/local/unit-only verification language — sufficient only for narrow, non-recurring single-ticket fixes that name the affected id (rule 7). Generic defaults apply when omitted. */
+    replayVerificationPatterns?: string[];
+    /** Regex sources recognizing "broad coverage" language ("all reported instances", "every linked ticket", "full export") — required when resolving a Group/Pattern/cascade across multiple sensitive tickets. Generic defaults apply when omitted. */
+    broadCoveragePatterns?: string[];
+    /** Values accepted for `verificationBrief.agentJudgment` as an explicit sufficiency call. Defaults to `["sufficient", "verified", "proven"]`. */
+    sufficientJudgments?: string[];
   };
   /**
    * Optional GitHub Issues sync. Tickets remain the richer agent-memory layer;
@@ -240,6 +319,14 @@ export interface Ticket {
   verification?: string;
   reproducible?: boolean;
   resolutionSummary?: string;
+  /**
+   * Structured verification evidence supplied at resolution time for
+   * evidence-sensitive tickets (see `ProjectConfig.verification`). Persisted
+   * alongside `resolutionSummary`/`verification` so the brief that justified
+   * closing the ticket remains auditable later — e.g. when `workflow_audit`
+   * or a future agent re-examines whether a resolution actually held up.
+   */
+  verificationBrief?: VerificationBrief;
   github?: TicketGithubLink;
 }
 
@@ -320,4 +407,12 @@ export interface ResolveInput {
   verification?: string;
   guardStatus?: GuardStatus;
   guardSummary?: string;
+  /**
+   * Structured verification evidence — required (and checked by
+   * `assertVerificationBriefForResolution`) when the ticket falls in a
+   * configured evidence-sensitive domain/kind (`ProjectConfig.verification`).
+   * Optional for every other ticket, which keeps the lightweight resolution
+   * path lightweight.
+   */
+  verificationBrief?: VerificationBrief;
 }

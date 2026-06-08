@@ -81,7 +81,8 @@ state fixture; run it with `npm test`.
 - `agentloop create [--prior-art-hint new|previously_ticketed|existing_pattern|adjacent_issues]` add a ticket; a non-`new` hint auto-checks for and prints possible prior art (see "History context")
 - `agentloop list` view active and resolved work
 - `agentloop begin <id>` mark triaged ticket as in-progress
-- `agentloop resolve <id> --summary ...` mark resolved with evidence
+- `agentloop resolve <id> --summary ... [--verification-brief <json>]` mark resolved with evidence; evidence-sensitive families/kinds (see `config.verification`) require `--verification-brief` — see [Verification briefs](docs/agent-integration.md#verification-briefs-deterministic-guardrails-vs-agent-judgment)
+- `agentloop resolve-pattern <id> --summary ... [--verification-brief <json>]` resolve a Pattern and cascade the same evidence to its not-yet-resolved linked tickets — stricter checks than single-ticket resolution apply
 - `agentloop reopen <id>` reopen and record a recurrence reason
 - `agentloop defer <id> [--summary ...]` defer a ticket with an optional reason
 - `agentloop note <id> --type ... --body ...` add context notes
@@ -148,7 +149,8 @@ Write tools (only registered with `--write`):
 | `agentloop_create` | create a ticket (`summary` required; `source` defaults to `agent`); optional `priorArtHint` records intake-time "history context" and, when it suggests prior art may exist, auto-surfaces candidates as `priorArtSuggestions` |
 | `agentloop_note` | append a non-resolution note |
 | `agentloop_workflow` | transition a ticket (`active` / `reopened` / `deferred`) |
-| `agentloop_resolve` | resolve with a summary, optional verification + guard |
+| `agentloop_resolve` | resolve with a summary, optional verification + guard; evidence-sensitive families/kinds (`config.verification`) require a structured `verificationBrief` — see [Verification briefs](docs/agent-integration.md#verification-briefs-deterministic-guardrails-vs-agent-judgment) |
+| `agentloop_resolve_pattern` | resolve a Pattern and cascade the same evidence to its not-yet-resolved linked tickets; escalates to stricter fresh-evidence/broad-coverage checks once two or more linked tickets are evidence-sensitive, and validates atomically before mutating anything |
 | `agentloop_guard` | record a regression-guard decision |
 | `agentloop_prior_art_refresh` | recompute + persist the prior-art graph (reinforce / decay / prune edges) |
 | `agentloop_workflow_repair` | fix `agentloop_workflow_audit` drift by reopening/resolving patterns to match their tickets (pass `dryRun: true` to preview without mutating) |

@@ -17,7 +17,26 @@ import {
   Ticket,
   TicketKind,
   TicketStatus,
+  VerificationBrief,
 } from "./types";
+import { CascadeResolveResult } from "./verification";
+
+/**
+ * Mirrors `VerificationBrief` for MCP input validation. Required for
+ * resolutions that fall in a configured evidence-sensitive domain/kind (see
+ * `ProjectConfig.verification` and `docs/agent-integration.md`): deterministic
+ * rules check that the brief is present and internally coherent; the agent's
+ * `agentJudgment`/`reason` supply the actual sufficiency call rules cannot make.
+ */
+const verificationBriefSchema = z.object({
+  claimScope: z.enum(["single_ticket", "group", "pattern", "cascade"]),
+  affectedArtifactIds: z.array(z.string()).optional(),
+  reportedLocations: z.array(z.string()).optional(),
+  verificationPerformed: z.array(z.string()).min(1),
+  coverage: z.string().min(1),
+  agentJudgment: z.string().min(1),
+  reason: z.string().min(1),
+});
 
 /**
  * Schema version for the MCP tool envelopes. Bump only on breaking changes;
@@ -275,6 +294,7 @@ export async function resolveTool(
     verification?: string;
     guardStatus?: GuardStatus;
     guardSummary?: string;
+    verificationBrief?: VerificationBrief;
   },
 ): Promise<WriteResult> {
   const ticket = await store.resolveTicket({
@@ -283,8 +303,56 @@ export async function resolveTool(
     verification: args.verification,
     guardStatus: args.guardStatus ?? "none",
     guardSummary: args.guardSummary,
+    verificationBrief: args.verificationBrief,
   });
   return { ...envelope(), action: "resolved", ticket };
+}
+
+export interface ResolvePatternToolResult extends Envelope {
+  action: "resolved_pattern";
+  pattern: Pattern;
+  resolvedTickets: Ticket[];
+  alreadyResolvedTickets: Ticket[];
+  escalatedVerification: boolean;
+}
+
+/**
+ * Resolves a Pattern and cascades the same resolution evidence to its
+ * not-yet-resolved linked tickets — the multi-ticket counterpart to
+ * `agentloop_resolve` (generalized from Inti's `resolve-pattern --resolve-linked`).
+ * `escalatedVerification` reports whether ≥ 2 linked tickets fell in a
+ * configured evidence-sensitive domain/kind, which escalates the
+ * fresh-evidence and broad-coverage requirements for all of them — "Pattern/
+ * group cascade resolution should require stronger coverage than single-ticket
+ * resolution," precisely the guardrail the originating bug lacked.
+ */
+export async function resolvePatternTool(
+  store: AgentLoopStore,
+  args: {
+    id: string;
+    summary: string;
+    verification?: string;
+    guardStatus?: GuardStatus;
+    guardSummary?: string;
+    verificationBrief?: VerificationBrief;
+  },
+): Promise<ResolvePatternToolResult> {
+  const result: CascadeResolveResult = await store.cascadeResolvePattern({
+    patternId: args.id,
+    summary: args.summary,
+    verification: args.verification,
+    guardStatus: args.guardStatus ?? "none",
+    guardSummary: args.guardSummary,
+    verificationBrief: args.verificationBrief,
+  });
+  return {
+    ...envelope(),
+    action: "resolved_pattern",
+    pattern: result.pattern,
+    resolvedTickets: result.resolvedTickets,
+    alreadyResolvedTickets: result.alreadyResolvedTickets,
+    escalatedVerification: result.escalatedVerification,
+  };
 }
 
 export async function guardTool(
@@ -764,19 +832,68 @@ function registerWriteTools(server: McpServer, store: AgentLoopStore): void {
     {
       title: "Resolve ticket",
       description:
-        "Resolve a ticket with a required summary; optionally record verification and a guard decision.",
+        "Resolve a ticket with a required summary; optionally record verification and a guard decision. " +
+        "Tickets in a configured evidence-sensitive family/kind (see config.verification, docs/agent-integration.md) " +
+        "additionally require `verificationBrief` — a structured account of what was verified, what scope was claimed, " +
+        "what coverage was achieved, and why that evidence is sufficient (`agentJudgment`/`reason`). Deterministic rules " +
+        "check the brief is present and internally coherent (e.g. naming known affected ids, requiring fresh/end-to-end " +
+        "evidence for recurrences); the agent's judgment is what actually proves sufficiency. Raw commands/logs alone do not satisfy this.",
       inputSchema: {
         id: z.string(),
         summary: z.string().min(1),
         verification: z.string().optional(),
         guardStatus: z.enum(GUARD_STATUSES).optional(),
         guardSummary: z.string().optional(),
+        verificationBrief: verificationBriefSchema
+          .optional()
+          .describe(
+            "Required for evidence-sensitive resolutions: { claimScope, affectedArtifactIds?, reportedLocations?, " +
+              "verificationPerformed, coverage, agentJudgment, reason }. See docs/agent-integration.md for the full shape and philosophy.",
+          ),
       },
       annotations: write,
     },
     async (args) => {
       try {
         return ok(await resolveTool(store, args));
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "agentloop_resolve_pattern",
+    {
+      title: "Resolve a Pattern and cascade to its linked tickets",
+      description:
+        "Resolve a Pattern and apply the same resolution narrative/evidence to every not-yet-resolved ticket linked to it " +
+        "(the multi-ticket counterpart to agentloop_resolve — generalized from Inti's `resolve-pattern --resolve-linked`). " +
+        "This is exactly the kind of operation that can close several tickets on weak evidence: before applying it, " +
+        "AgentLoops counts how many linked tickets fall in a configured evidence-sensitive domain/kind, and when ≥ 2 do, " +
+        "escalates the fresh-evidence and broad-coverage requirements for ALL of them regardless of the brief's own claimed " +
+        "scope (`escalatedVerification` reports whether this happened) — guardrails the originating bug lacked, when a single " +
+        "narrow replay was accepted as proof for a whole multi-ticket Pattern. Validation runs for every linked ticket before " +
+        "any mutation, so a bad cascade fails atomically. Mutates and saves ledger state.",
+      inputSchema: {
+        id: z.string().describe("Pattern id, e.g. 'PATTERN-000007' (see agentloop_list / agentloop_show)"),
+        summary: z.string().min(1),
+        verification: z.string().optional(),
+        guardStatus: z.enum(GUARD_STATUSES).optional(),
+        guardSummary: z.string().optional(),
+        verificationBrief: verificationBriefSchema
+          .optional()
+          .describe(
+            "Required when ≥ 1 linked ticket is evidence-sensitive; checked against the escalated rules when ≥ 2 are. " +
+              "Use claimScope 'pattern' or 'cascade' and broad-coverage language (e.g. 'all reported instances', " +
+              "'every linked ticket') for genuine multi-ticket claims. See docs/agent-integration.md.",
+          ),
+      },
+      annotations: write,
+    },
+    async (args) => {
+      try {
+        return ok(await resolvePatternTool(store, args));
       } catch (error) {
         return fail(error);
       }

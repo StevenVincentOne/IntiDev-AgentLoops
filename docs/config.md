@@ -66,6 +66,58 @@ project can override any of them, or raise the default match threshold:
 
 Omit `priorArt` entirely to use the core defaults.
 
+### Verification briefs for evidence-sensitive domains (optional)
+
+Off by default — every ticket keeps the lightweight `agentloop resolve
+--summary ... --verification ...` path until you opt in. Some domains are easy
+to mark "fixed" on weak evidence (a render/export/migration pipeline whose
+output quality is hard to eyeball, an integration whose correctness depends on
+which environment you hit, ...). Configure `verification` to require a
+structured `verificationBrief` before AgentLoops will resolve tickets in those
+domains — see [Verification briefs](agent-integration.md#verification-briefs-deterministic-guardrails-vs-agent-judgment)
+for the full philosophy and brief shape:
+
+```json
+{
+  "verification": {
+    "sensitiveFamilyPatterns": ["^export_pipeline$", "^reader_"],
+    "sensitiveKinds": ["bug", "incident"],
+    "artifactIdPattern": "\\b(DOC-\\d+)\\b",
+    "freshVerificationPatterns": ["re-?upload", "full reprocess", "post-ingest scan"],
+    "replayVerificationPatterns": ["current-code replay", "unit test"],
+    "broadCoveragePatterns": ["all reported instances", "every linked ticket"],
+    "sufficientJudgments": ["sufficient", "verified"]
+  }
+}
+```
+
+- **`sensitiveFamilyPatterns`** (required to enable the feature) — regex
+  sources matched against `Ticket.family`. No domain vocabulary ships
+  hardcoded; nothing happens until you list your own families/patterns here.
+- **`sensitiveKinds`** — ticket kinds that require a brief in a sensitive
+  family. Defaults to `["bug", "incident"]`.
+- **`artifactIdPattern`** — an optional single-capture-group regex that
+  extracts "known affected artifact/entity ids" (document ids, order ids,
+  routes, correlation keys, ...) from a ticket's title/summary/tags. When it
+  matches, the brief/evidence must name those ids — generalizes Inti's
+  `correlation_key`-derived document-id checks without a new structured Ticket
+  field. Omit it if your domain has no such concept.
+- **`freshVerificationPatterns`** / **`replayVerificationPatterns`** /
+  **`broadCoveragePatterns`** — regex vocabularies distinguishing "fresh /
+  end-to-end" evidence (required for recurrences and Pattern/Group/cascade
+  claims) from "replay/local/unit" evidence (sufficient only for narrow,
+  non-recurring single-ticket claims that name the affected id), and
+  recognizing "broad coverage" language (required for multi-ticket claims).
+  Generic, domain-agnostic defaults apply when omitted — override them to
+  match your project's actual tooling vocabulary.
+- **`sufficientJudgments`** — values accepted for `verificationBrief.agentJudgment`
+  as an explicit sufficiency call. Defaults to `["sufficient", "verified", "proven"]`.
+
+Once configured, `agentloop resolve`/`agentloop_resolve` (and the cascade form,
+`agentloop resolve-pattern`/`agentloop_resolve_pattern`) reject resolutions of
+matching tickets that lack a coherent `verificationBrief`. See
+`src/verification.ts` for the full, numbered guardrail rules.
+
 ### Redaction (optional)
 
 By default ticket text is stored unchanged. Add regex rules under

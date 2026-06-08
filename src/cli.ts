@@ -7,6 +7,7 @@ import {
   ProjectConfig,
   TicketKind,
   TicketStatus,
+  VerificationBrief,
 } from "./types";
 import { promises as fs } from "node:fs";
 import { AgentLoopStore, normalizeTicketInput } from "./store";
@@ -110,7 +111,12 @@ function printHelp() {
   printLine("  show <id>                       inspect ticket");
   printLine("  patterns [--status open|active|resolved|all] list patterns");
   printLine("  begin <id>                      begin a triaged item");
-  printLine("  resolve <id> --summary ...      resolve a ticket");
+  printLine("  resolve <id> --summary ... [--verification ..] [--verification-brief <json>]");
+  printLine("                                  resolve a ticket; evidence-sensitive families/kinds (see config.verification)");
+  printLine("                                  require --verification-brief — see docs/agent-integration.md for the shape");
+  printLine("  resolve-pattern <id> --summary ... [--verification-brief <json>] [...]");
+  printLine("                                  resolve a Pattern and cascade the same evidence to its not-yet-resolved linked tickets;");
+  printLine("                                  ≥2 evidence-sensitive linked tickets escalate to fresh + broad-coverage requirements (write)");
   printLine("  reopen <id> --summary ...       reopen a resolved/reopen-risk item");
   printLine("  defer <id> [--summary ...]      defer a ticket (records an optional reason)");
   printLine("  note <id> --type ... --body ... add a non-resolution note");
@@ -336,8 +342,49 @@ async function cmdResolve(argv: string[], options: ArgMap) {
     verification: typeof options.verification === "string" ? options.verification : undefined,
     guardStatus: typeof options["guard-status"] === "string" ? (options["guard-status"] as string as any) : "none",
     guardSummary: typeof options["guard-summary"] === "string" ? options["guard-summary"] : undefined,
+    verificationBrief: parseVerificationBriefOption(options),
   });
   printJson(ticket);
+}
+
+/**
+ * Parses `--verification-brief <json>` into a `VerificationBrief`. Evidence-
+ * sensitive tickets/Patterns require this — see `ProjectConfig.verification`
+ * and `docs/agent-integration.md` for the shape and the philosophy behind it
+ * (deterministic rules check the brief is complete and coherent; the agent's
+ * `agentJudgment`/`reason` supply the actual sufficiency call).
+ */
+function parseVerificationBriefOption(options: ArgMap): VerificationBrief | undefined {
+  const raw = options["verification-brief"];
+  if (typeof raw !== "string" || raw.trim().length === 0) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`--verification-brief must be valid JSON: ${(error as Error).message}`);
+  }
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("--verification-brief must be a JSON object matching the VerificationBrief shape");
+  }
+  return parsed as VerificationBrief;
+}
+
+async function cmdResolvePattern(argv: string[], options: ArgMap) {
+  const { store } = await ensureConfig();
+  const id = argv[1];
+  const summary = typeof options.summary === "string" ? options.summary : "";
+  if (!id || !summary) {
+    throw new Error("resolve-pattern requires <id> and --summary");
+  }
+  const result = await store.cascadeResolvePattern({
+    patternId: id,
+    summary,
+    verification: typeof options.verification === "string" ? options.verification : undefined,
+    guardStatus: typeof options["guard-status"] === "string" ? (options["guard-status"] as string as any) : "none",
+    guardSummary: typeof options["guard-summary"] === "string" ? options["guard-summary"] : undefined,
+    verificationBrief: parseVerificationBriefOption(options),
+  });
+  printJson(result);
 }
 
 async function cmdReopen(argv: string[], options: ArgMap) {
@@ -624,6 +671,9 @@ async function main() {
       break;
     case "resolve":
       await cmdResolve(args, options);
+      break;
+    case "resolve-pattern":
+      await cmdResolvePattern(args, options);
       break;
     case "reopen":
       await cmdReopen(args, options);

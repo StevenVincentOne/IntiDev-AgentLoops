@@ -279,12 +279,12 @@ test("write tools are gated: absent by default, present and usable with allowWri
       await ro.close();
     }
 
-    // Write-enabled server: 14 read + 9 write tools; a create round-trips through show.
+    // Write-enabled server: 14 read + 10 write tools; a create round-trips through show.
     const rw = createMcpServer(store, { allowWrites: true });
     const rwClient = await connectedClient(rw);
     try {
       const tools = (await rwClient.listTools()).tools;
-      assert.equal(tools.length, 23);
+      assert.equal(tools.length, 24);
       const createTool = tools.find((t) => t.name === "agentloop_create");
       assert.equal(createTool?.annotations?.readOnlyHint, false);
 
