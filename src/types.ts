@@ -160,6 +160,26 @@ export interface ProjectConfig {
     databaseUrl?: string;
   };
   /**
+   * Optional config for the Root Cause Certificate requirement.
+   *
+   * When `meaningfulKinds` (default `["bug","incident","user_feedback"]`) is
+   * matched by the ticket's `kind`, resolving with any summary requires an
+   * `evidence.rootCauseCertificate` — a compact structured statement of the
+   * symptom, code-level root cause, earliest failure stage, source-level fix
+   * rationale, failed contract/invariant, files changed, guard decision, and
+   * regression risk. Deterministic rules check the certificate is present and
+   * that required fields are not TODO-placeholders; the agent remains
+   * responsible for the diagnosis being architecturally correct.
+   *
+   * Set `meaningfulKinds: []` to opt out entirely.
+   */
+  rootCause?: {
+    /** Ticket kinds that require a certificate. Defaults to `["bug","incident","user_feedback"]`. */
+    meaningfulKinds?: TicketKind[];
+    /** Minimum character length for a text field to be considered "actionable". Default 20. */
+    minFieldLength?: number;
+  };
+  /**
    * Optional config defining "artifact/output-sensitive" domains — ticket
    * families/kinds whose resolutions are easy to mark fixed on weak evidence
    * (e.g. a document/export/render pipeline whose output quality is hard to
@@ -293,6 +313,61 @@ export interface TicketGithubLink {
   lastSyncedCommentId?: number;
 }
 
+/**
+ * A non-destructive trust overlay applied to a resolved ticket that was
+ * resolved before the current verification workflow stabilised (or that has
+ * evidence of inadequate verification). Surfaces in `related` and prior-art
+ * output so agents see the warning when they are about to reuse the history
+ * as settled proof.
+ *
+ * Levels:
+ * - `trusted`     — no concerns; full reuse confidence (default / implicit)
+ * - `provisional` — resolved in a weak-evidence era; treat as hypothesis,
+ *                   verify independently before reusing
+ * - `suspect`     — specific evidence of inadequate or wrong verification
+ * - `deprecated`  — should no longer guide future fixes at all
+ */
+export type PriorArtTrustLevel = "trusted" | "provisional" | "suspect" | "deprecated";
+
+export interface PriorArtTrust {
+  level: PriorArtTrustLevel;
+  /** Human/agent summary of why this level was applied. */
+  auditStatus?: string;
+  /** The cutoff date used during the audit, if applied via `prior-art-audit`. */
+  cutoffDate?: string;
+  /** Machine-readable reasons surfaced during the audit. */
+  reasons?: string[];
+}
+
+/**
+ * A structured root-cause statement required when resolving a meaningful
+ * fixed bug, incident, or user-feedback ticket. The point is NOT to make the
+ * ledger know the root cause — it is to force the agent to make an explicit
+ * architectural claim before resolution. Deterministic rules check the
+ * certificate is present and non-placeholder; the agent remains responsible
+ * for the diagnosis being correct.
+ *
+ * Generated scaffold: `agentloop evidence-draft <id> --evidence-only`
+ */
+export interface RootCauseCertificate {
+  /** The visible failure symptom as experienced by a user or detector. */
+  symptom: string;
+  /** The code-level or architecture-level root cause — not just a restatement of the symptom. */
+  rootCause: string;
+  /** The earliest stage where correct data became incorrect or unavailable. */
+  earliestFailureStage: string;
+  /** Why the fix is at the earliest responsible layer, or why a downstream fix was chosen. */
+  whySourceLevelFixOrWhyNot: string;
+  /** The contract or invariant that failed (e.g. "list marker removal must not corrupt inline emphasis"). */
+  affectedContractOrInvariant: string;
+  /** Source files changed, or `["none: <reason>"]` if no files changed. */
+  filesChanged: string[];
+  /** Guard decision — names the guard added/existing/waived/deferred and why it catches recurrence. */
+  guardDecision: string;
+  /** Regression risk: `low | medium | high | critical | none`. */
+  regressionRisk: string;
+}
+
 export interface Ticket {
   id: string;
   family: string;
@@ -313,8 +388,16 @@ export interface Ticket {
   handoffText?: string;
   guardStatus?: GuardStatus;
   guardSummary?: string;
+  /** Concrete command/test that serves as a regression guard, e.g. `npm test -- --grep "list rendering"`. */
+  guardCommand?: string;
+  /** Artifact path (test file, smoke spec, detector config) referenced by the guard. */
+  guardArtifactRef?: string;
+  /** Stable detector/key that should catch recurrence (e.g. a telemetry rule name, CI check id). */
+  guardDetectorKey?: string;
   /** Reporter's self-assessed "history context" at intake time, if provided. */
   priorArtHint?: PriorArtHint;
+  /** Non-destructive trust overlay — surfaces in prior-art/related output to warn agents about weak historical verification. */
+  priorArtTrust?: PriorArtTrust;
   patternId?: string;
   verification?: string;
   reproducible?: boolean;
@@ -327,6 +410,13 @@ export interface Ticket {
    * or a future agent re-examines whether a resolution actually held up.
    */
   verificationBrief?: VerificationBrief;
+  /**
+   * Structured root-cause statement, required for meaningful fixed
+   * bugs/incidents/user-feedback (see `ProjectConfig.rootCause`). Persisted
+   * alongside the resolution so the architectural claim behind the fix is
+   * auditable later. Generated scaffold: `agentloop evidence-draft <id>`.
+   */
+  rootCauseCertificate?: RootCauseCertificate;
   github?: TicketGithubLink;
 }
 
@@ -415,4 +505,124 @@ export interface ResolveInput {
    * path lightweight.
    */
   verificationBrief?: VerificationBrief;
+  /**
+   * Structured root-cause statement — required (and checked by
+   * `assertRootCauseCertificateForResolution`) when resolving a meaningful
+   * fixed bug, incident, or user-feedback ticket (see `ProjectConfig.rootCause`).
+   * Generate a scaffold with `agentloop evidence-draft <id> --evidence-only`.
+   */
+  rootCauseCertificate?: RootCauseCertificate;
+  /** Concrete command/test serving as a regression guard (e.g. `npm test -- --grep "..."`) — surfaced in `resolve-draft` output. */
+  guardCommand?: string;
+  /** Artifact path (test file, smoke spec) referenced by the guard. */
+  guardArtifactRef?: string;
+  /** Stable detector/rule key that would catch recurrence. */
+  guardDetectorKey?: string;
+}
+
+// ── Classify-siblings ─────────────────────────────────────────────────────────
+
+/** Categories used to persist sibling ticket classifications from sweep/expansion review. */
+export type SiblingClassification = "same_root" | "adjacent" | "unverified" | "unrelated";
+
+export interface ClassifySiblingsInput {
+  /** The seed ticket (the one under investigation). */
+  seedId: string;
+  /** Tickets classified as same root cause / accepted bucket. */
+  sameRoot?: string[];
+  /** Tickets classified as adjacent or different root cause. */
+  adjacent?: string[];
+  /** Tickets whose coverage is unverified / artifacts unavailable. */
+  unverified?: string[];
+  /** Tickets classified as unrelated. */
+  unrelated?: string[];
+  /** Human or agent reason for the classification. */
+  reason?: string;
+  /** If true, create a durable same-root prior-art link for `sameRoot` tickets. */
+  linkSameRoot?: boolean;
+}
+
+export interface ClassifySiblingsResult {
+  seedId: string;
+  classified: Array<{ ticketId: string; category: SiblingClassification }>;
+  linkedSameRoot: boolean;
+}
+
+// ── Ticket sweep ──────────────────────────────────────────────────────────────
+
+export interface TicketSweepCandidate {
+  id: string;
+  title: string;
+  status: string;
+  family: string;
+  score: number;
+  reasons: string[];
+  resolutionSummary?: string;
+  guardStatus?: string;
+  priorArtTrust?: PriorArtTrustLevel;
+}
+
+export interface TicketSweepRootCauseBucket {
+  label: string;
+  confidence: "low" | "medium" | "high";
+  /** Always `"agent_must_decide"` — the sweep surfaces candidates, not verdicts. */
+  coveredByCurrentFix: "agent_must_decide";
+  ticketIds: string[];
+  guidance: string;
+}
+
+export interface TicketSweepResult {
+  seed: { id: string; title: string; status: string; family: string };
+  symptomSignature: { label: string; tokens: string[] };
+  candidates: {
+    likelySameSymptom: TicketSweepCandidate[];
+    adjacentOrDifferentRoot: TicketSweepCandidate[];
+    historicalPriorArt: TicketSweepCandidate[];
+    patternMatches: Array<{ patternId: string; title: string; status: string; score: number }>;
+  };
+  rootCauseBuckets: TicketSweepRootCauseBucket[];
+  recommendedActions: string[];
+}
+
+// ── Prior-art audit ───────────────────────────────────────────────────────────
+
+export interface PriorArtAuditOptions {
+  /** ISO date — tickets resolved on or before this date are included. Default: current date. */
+  cutoffDate?: string;
+  family?: string;
+  limit?: number;
+  /** If true, write the trust level to `Ticket.priorArtTrust` and persist. */
+  apply?: boolean;
+  /** If true and `apply`, also add a triage note explaining the trust level. */
+  addNote?: boolean;
+  /** Trust level to apply. Default `provisional`. */
+  trustLevel?: PriorArtTrustLevel;
+  /** If true, overwrite an existing trust level even if it is already at or above the requested level. */
+  overwrite?: boolean;
+}
+
+export interface PriorArtAuditRow {
+  ticketId: string;
+  title: string;
+  family: string;
+  kind: string;
+  status: string;
+  resolvedAt: string | null;
+  hasVerification: boolean;
+  hasGuard: boolean;
+  hasResolutionSummary: boolean;
+  activeSameFamilyCount: number;
+  existingTrust: PriorArtTrustLevel | null;
+  recommendedTrust: PriorArtTrustLevel;
+  reasons: string[];
+  applied?: boolean;
+  noteCreated?: boolean;
+}
+
+export interface PriorArtAuditResult {
+  cutoffDate: string;
+  count: number;
+  byRecommendedTrust: Record<string, number>;
+  applied: number;
+  rows: PriorArtAuditRow[];
 }

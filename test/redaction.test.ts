@@ -7,6 +7,7 @@ import { DEFAULT_CONFIG } from "../src/config";
 import { AgentLoopStore } from "../src/store";
 import { createPatternRedactor, noopRedactor } from "../src/redaction";
 import { ProjectConfig } from "../src/types";
+import { MINIMAL_ROOT_CAUSE_CERT } from "./helpers";
 
 const EMAIL = { pattern: "[\\w.]+@[\\w.]+\\.[a-z]+", replacement: "[email]" };
 
@@ -47,6 +48,7 @@ test("store applies config-driven redaction on every write path", async () => {
       id: ticket.id,
       summary: "patched; pinged e@f.com",
       verification: "confirmed by g@h.net",
+      rootCauseCertificate: MINIMAL_ROOT_CAUSE_CERT,
     });
     assert.equal(resolved.resolutionSummary, "patched; pinged [email]");
     assert.equal(resolved.verification, "confirmed by [email]");

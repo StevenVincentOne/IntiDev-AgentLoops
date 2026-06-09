@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { DEFAULT_CONFIG } from "../src/config";
 import { AgentLoopStore } from "../src/store";
 import { ProjectConfig } from "../src/types";
+import { MINIMAL_ROOT_CAUSE_CERT } from "./helpers";
 import { PRIOR_ART_SCHEMA_VERSION, PriorArtReport } from "../src/prior-art";
 import {
   aggregateGroupPriorArt,
@@ -52,6 +53,7 @@ async function seedWorkbenchFixture(store: AgentLoopStore) {
     summary: "Cleared and regenerated the thumbnail cache deterministically.",
     verification: "smoke green",
     guardStatus: "guard_added",
+    rootCauseCertificate: MINIMAL_ROOT_CAUSE_CERT,
   });
 
   const a1 = await store.createTicket({

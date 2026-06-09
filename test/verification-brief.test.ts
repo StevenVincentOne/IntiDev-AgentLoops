@@ -31,6 +31,8 @@ const NON_SENSITIVE_FAMILY = "general";
 function withVerificationConfig(overrides?: Partial<ProjectConfig["verification"]>): ProjectConfig {
   return {
     ...DEFAULT_CONFIG,
+    // Opt out of rootCauseCertificate requirement so tests focus on verificationBrief logic.
+    rootCause: { meaningfulKinds: [] },
     verification: {
       sensitiveFamilyPatterns: [`^${SENSITIVE_FAMILY}$`],
       artifactIdPattern: "\\b(DOC-\\d+)\\b",

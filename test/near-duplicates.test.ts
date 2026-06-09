@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { DEFAULT_CONFIG } from "../src/config";
 import { AgentLoopStore } from "../src/store";
 import { seedConvergenceDemo } from "../scripts/demo-seed";
+import { MINIMAL_ROOT_CAUSE_CERT } from "./helpers";
 
 async function withSeededStore<T>(run: (store: AgentLoopStore) => Promise<T>): Promise<T> {
   const dir = await fs.mkdtemp(join(tmpdir(), "agentloops-near-duplicates-"));
@@ -126,7 +127,7 @@ test("nearDuplicates respects the family filter and excludes resolved work by de
     assert.equal(elsewhere.summary.pairsFlagged, 0);
 
     // Resolve one side of the duplicate pair: by default it drops out of scope.
-    await store.resolveTicket({ id: a.id, summary: "fixed the retry loop" });
+    await store.resolveTicket({ id: a.id, summary: "fixed the retry loop", rootCauseCertificate: MINIMAL_ROOT_CAUSE_CERT });
     const afterResolve = await store.nearDuplicates({ family: "queue_worker" });
     assert.equal(afterResolve.summary.ticketsConsidered, 1);
     assert.equal(afterResolve.summary.pairsFlagged, 0);

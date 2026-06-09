@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { DEFAULT_CONFIG } from "../src/config";
 import { AgentLoopStore } from "../src/store";
 import { seedConvergenceDemo } from "../scripts/demo-seed";
+import { MINIMAL_ROOT_CAUSE_CERT } from "./helpers";
 
 async function freshDir(): Promise<string> {
   const dir = await fs.mkdtemp(join(tmpdir(), "agentloops-workflow-"));
@@ -23,6 +24,7 @@ test("workflow transitions and their side effects persist across a fresh store",
       summary: "patched the timeout",
       verification: "smoke green",
       guardStatus: "guard_added",
+      rootCauseCertificate: MINIMAL_ROOT_CAUSE_CERT,
     });
     await writer.reopenTicket("USER-000002", "user saw it again");
     await writer.deferTicket("DEV-000003", "backlog for next quarter");

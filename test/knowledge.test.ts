@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { DEFAULT_CONFIG } from "../src/config";
 import { AgentLoopStore } from "../src/store";
 import { seedConvergenceDemo } from "../scripts/demo-seed";
+import { MINIMAL_ROOT_CAUSE_CERT } from "./helpers";
 
 async function withSeededStore<T>(run: (store: AgentLoopStore) => Promise<T>): Promise<T> {
   const dir = await fs.mkdtemp(join(tmpdir(), "agentloops-knowledge-"));
@@ -25,8 +26,9 @@ async function resolveDemo(store: AgentLoopStore): Promise<void> {
     id: "ISSUE-000001",
     summary: "Added a timeout guard around the exporter",
     verification: "export smoke green",
+    rootCauseCertificate: MINIMAL_ROOT_CAUSE_CERT,
   });
-  await store.resolveTicket({ id: "USER-000002", summary: "Documented the long-report workaround" });
+  await store.resolveTicket({ id: "USER-000002", summary: "Documented the long-report workaround", rootCauseCertificate: MINIMAL_ROOT_CAUSE_CERT });
   await store.resolveTicket({ id: "DEV-000003", summary: "Shipped the streaming pipeline" });
 }
 

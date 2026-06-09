@@ -78,11 +78,24 @@ matching MCP tool name in parentheses.
   rather than editing the summary: `agentloop note <id> --type
   hypothesis|related_history|prior_fix|triage --body "..."`
   (`agentloop_note`).
+- **Before resolving a bug or incident, run a symptom-family sweep** to
+  classify open tickets that share the same surface symptom: `agentloop sweep
+  <id>` (`agentloop_sweep`). Review `likelySameSymptom` and
+  `adjacentOrDifferentRoot` buckets; persist your decisions with `agentloop
+  classify-siblings <id> --same-root ... --adjacent ... --unrelated ...`
+  (`agentloop_classify_siblings`) so the triage survives the conversation.
 - Do not mark a ticket resolved just because code changed. Resolution
   requires verification evidence: run `<your project's test/verification
   command(s)>` and capture the result. Then resolve with `agentloop resolve
   <id> --summary "..." --verification "<command + result>"`
   (`agentloop_resolve`).
+- **Meaningful bug/incident/user_feedback resolutions require a Root Cause
+  Certificate**: generate the scaffold with `agentloop evidence-draft <id>
+  --evidence-only` or the full command with `agentloop resolve-draft <id>`,
+  fill in every field (no TODO placeholders), and pass it as
+  `--root-cause-certificate '<json>'` (or `@/tmp/cert.json`). See
+  [Root Cause Certificate](#root-cause-certificate-required-for-meaningful-fixed-bugs)
+  below. To opt out for a project: set `rootCause.meaningfulKinds: []` in config.
 - **Evidence-sensitive resolutions need a verification brief, not just a
   command transcript**: if your project configures `verification` (see
   [Customizing for your project](#customizing-for-your-project) and
@@ -262,6 +275,125 @@ Fill in the placeholders the way you would for `ticketGroups.customRules` or
   structured `verificationBrief` for them — see [Verification briefs](#verification-briefs-deterministic-guardrails-vs-agent-judgment)
   and [config](config.md). Do not hardcode a domain's artifact vocabulary into
   agent instructions; express it here so the guardrails and the playbook agree.
+
+## Root Cause Certificate: required for meaningful fixed bugs
+
+For tickets with `kind: bug | incident | user_feedback` (configurable via
+`config.rootCause.meaningfulKinds`), `agentloop resolve` / `agentloop_resolve`
+requires a `rootCauseCertificate` alongside the resolution summary. The
+certificate is **not a root-cause oracle** — it is a required *reasoning
+surface*: the ledger checks that you made an explicit architectural claim, not
+that the claim is correct.
+
+**The problem it solves**: a bug can be closed with a summary and some
+verification output without ever stating *why* the code was wrong, which
+invariant broke, or why the fix is at the right layer. That analysis lives only
+in the conversation transcript, where future agents won't find it.
+
+**Generate the scaffold**: run `agentloop evidence-draft <id> --evidence-only`
+to emit the exact JSON you need to fill in. Run `agentloop resolve-draft <id>`
+to emit a ready-to-edit `agentloop resolve` command with explicit guard flags
+already wired in.
+
+### The certificate shape
+
+```json
+{
+  "symptom": "What the user/smoke test observed — the visible failure.",
+  "rootCause": "The actual code-level reason: what was wrong and why.",
+  "earliestFailureStage": "Where in execution the invariant was first broken.",
+  "whySourceLevelFixOrWhyNot": "Why the fix is (or isn't) at the source level.",
+  "affectedContractOrInvariant": "The interface / invariant / API contract that was violated.",
+  "filesChanged": ["src/foo.ts", "test/foo.test.ts"],
+  "guardDecision": "What test/check now prevents recurrence, or why none is needed.",
+  "regressionRisk": "low | medium | high — with a one-sentence rationale."
+}
+```
+
+Pass it as `--root-cause-certificate '<json>'` (or `--root-cause-certificate
+@/tmp/cert.json` for the file-based form) or as `rootCauseCertificate` on
+`agentloop_resolve`. Every field must be substantive — TODO placeholders and
+too-short values are rejected.
+
+**To opt out** (e.g. for a project that handles bugs as lightweight tasks):
+set `rootCause.meaningfulKinds: []` in your project config.
+
+## Symptom-family sweep: classify same-root vs. adjacent before resolving
+
+Before resolving a bug, run a symptom-family sweep to make sure you're not
+closing one symptom while leaving related open tickets unaware:
+
+```
+agentloop sweep <id>
+```
+(`agentloop_sweep` — read-only)
+
+The sweep scores every other ticket by symptom-token overlap with the seed,
+classifies them into:
+
+- **`likelySameSymptom`** — open tickets with high token overlap; may share
+  the same root cause as what you're about to fix
+- **`adjacentOrDifferentRoot`** — open tickets with moderate overlap; related
+  but likely a distinct root
+- **`historicalPriorArt`** — resolved tickets that previously exhibited the
+  same surface symptom
+- **`patternMatches`** — Patterns whose description overlaps the seed's tokens
+
+The sweep emits `rootCauseBuckets` with `coveredByCurrentFix:
+"agent_must_decide"` — it never decides for you, only surfaces evidence and
+prompts classification.
+
+**After reviewing the sweep**, persist your decisions:
+
+```
+agentloop classify-siblings <seed-id> \
+  --same-root T-42 T-57 \
+  --adjacent T-61 \
+  --unrelated T-99 \
+  --reason "T-42 and T-57 share the exact null-guard bug; T-61 is a different code path"
+```
+(`agentloop_classify_siblings`)
+
+This appends triage notes to each reviewed ticket and a summary note to the
+seed so sweep decisions survive the conversation.
+
+## Prior-art trust: annotate stale resolved tickets
+
+Resolved tickets accumulated before a major refactor or dependency upgrade may
+carry verification that no longer applies. The prior-art trust overlay lets you
+mark them non-destructively:
+
+```
+agentloop prior-art-audit [--family <f>] [--cutoff-date 2025-01-01] [--apply]
+```
+(`agentloop_prior_art_audit`)
+
+Without `--apply`, this is a read-only preview: it scores resolved tickets by
+verification staleness and recommends a trust level
+(`trusted`/`provisional`/`suspect`/`deprecated`) per ticket.
+
+With `--apply`, it writes the recommended `priorArtTrust` metadata onto each
+audited ticket and appends a triage note explaining the decision.
+
+Trust levels are surfaced in `agentloop related <id>` and
+`agentloop prior-art-graph` output so you can see at a glance whether a
+candidate fix or guard is still considered reliable.
+
+## Guard ergonomics: wiring your regression guard into the resolution
+
+When resolving, you can attach the specific guard command and artifact
+reference so the decision is machine-readable and surfaced in future sweeps:
+
+```
+agentloop resolve <id> \
+  --summary "..." \
+  --guard-command "npm test -- --grep 'null guard'" \
+  --guard-artifact-ref "test/widget/render.test.ts" \
+  --guard-detector-key "widget.null_guard"
+```
+
+These fields are stored on the ticket and appear in `agentloop resolve-draft
+<id>` output so the scaffold is always populated from previous context.
 
 ## Why a playbook, not just MCP tool descriptions
 

@@ -102,6 +102,15 @@ export type {
   PromoteGroupResult,
 } from "./ticket-groups";
 export {
+  certificateFieldIsActionable,
+  requiresRootCauseCertificate,
+  assertRootCauseCertificateForResolution,
+  DEFAULT_ROOT_CAUSE_KINDS,
+  MIN_CERTIFICATE_FIELD_LENGTH,
+} from "./root-cause";
+export { sweepTicket } from "./sweep";
+export type { SweepOptions } from "./sweep";
+export {
   assertVerificationBriefForResolution,
   isSensitiveFamily,
   requiresVerificationBrief,

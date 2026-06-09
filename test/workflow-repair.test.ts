@@ -7,6 +7,7 @@ import { DEFAULT_CONFIG } from "../src/config";
 import { AgentLoopStore } from "../src/store";
 import { seedConvergenceDemo } from "../scripts/demo-seed";
 import { workflowRepairPlan } from "../src/workflow-repair";
+import { MINIMAL_ROOT_CAUSE_CERT } from "./helpers";
 
 async function withSeededStore<T>(run: (store: AgentLoopStore) => Promise<T>): Promise<T> {
   const dir = await fs.mkdtemp(join(tmpdir(), "agentloops-workflow-repair-"));
@@ -53,7 +54,7 @@ test("repairWorkflow reopens a resolved pattern that still has active linked tic
     // Close the pattern out early while its tickets are still open -- the
     // exact drift `workflow-audit.test.ts` exercises.
     await store.resolvePattern(pattern.id, "closed early");
-    await store.resolveTicket({ id: "ISSUE-000001", summary: "patched" });
+    await store.resolveTicket({ id: "ISSUE-000001", summary: "patched", rootCauseCertificate: MINIMAL_ROOT_CAUSE_CERT });
     await store.reopenTicket("ISSUE-000001", "regressed in prod");
 
     // `dryRun` plans the fix without touching anything.
@@ -110,8 +111,8 @@ test("repairWorkflow resolves a stale pattern whose linked tickets are all close
 
     // Close out every linked ticket without ever resolving the pattern --
     // the second drift case `workflow-audit.test.ts` exercises.
-    await store.resolveTicket({ id: "ISSUE-000001", summary: "patched" });
-    await store.resolveTicket({ id: "USER-000002", summary: "answered" });
+    await store.resolveTicket({ id: "ISSUE-000001", summary: "patched", rootCauseCertificate: MINIMAL_ROOT_CAUSE_CERT });
+    await store.resolveTicket({ id: "USER-000002", summary: "answered", rootCauseCertificate: MINIMAL_ROOT_CAUSE_CERT });
     await store.deferTicket("DEV-000003", "deprioritized");
 
     const preview = await store.repairWorkflow({ dryRun: true });

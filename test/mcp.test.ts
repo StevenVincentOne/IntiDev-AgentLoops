@@ -21,6 +21,7 @@ import {
   MCP_SCHEMA_VERSION,
 } from "../src/mcp";
 import { seedConvergenceDemo } from "../scripts/demo-seed";
+import { MINIMAL_ROOT_CAUSE_CERT } from "./helpers";
 
 async function withSeededStore<T>(run: (store: AgentLoopStore) => Promise<T>): Promise<T> {
   const dir = await fs.mkdtemp(join(tmpdir(), "agentloops-mcp-"));
@@ -122,6 +123,7 @@ test("MCP server exposes the read-only tools over the protocol", async () => {
           "agentloop_search_knowledge",
           "agentloop_show",
           "agentloop_summary",
+          "agentloop_sweep",
           "agentloop_ticket_groups",
           "agentloop_workflow_audit",
         ],
@@ -255,6 +257,7 @@ test("resolveTool records summary, verification, and guard", async () => {
       summary: "streamed exporter shipped",
       verification: "smoke green",
       guardStatus: "guard_existing",
+      rootCauseCertificate: MINIMAL_ROOT_CAUSE_CERT,
     });
     assert.equal(resolved.action, "resolved");
     assert.equal(resolved.ticket.status, "resolved");
@@ -272,19 +275,19 @@ test("write tools are gated: absent by default, present and usable with allowWri
     const roClient = await connectedClient(ro);
     try {
       const names = (await roClient.listTools()).tools.map((t) => t.name);
-      assert.equal(names.length, 14); // 14 read-only tools
+      assert.equal(names.length, 15); // 15 read-only tools (includes agentloop_sweep)
       assert.ok(!names.some((n) => n.startsWith("agentloop_create")));
     } finally {
       await roClient.close();
       await ro.close();
     }
 
-    // Write-enabled server: 14 read + 10 write tools; a create round-trips through show.
+    // Write-enabled server: 15 read + 12 write tools; a create round-trips through show.
     const rw = createMcpServer(store, { allowWrites: true });
     const rwClient = await connectedClient(rw);
     try {
       const tools = (await rwClient.listTools()).tools;
-      assert.equal(tools.length, 24);
+      assert.equal(tools.length, 27);
       const createTool = tools.find((t) => t.name === "agentloop_create");
       assert.equal(createTool?.annotations?.readOnlyHint, false);
 

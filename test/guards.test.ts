@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { DEFAULT_CONFIG } from "../src/config";
 import { AgentLoopStore } from "../src/store";
 import { seedConvergenceDemo } from "../scripts/demo-seed";
+import { MINIMAL_ROOT_CAUSE_CERT } from "./helpers";
 
 async function withSeededStore<T>(run: (store: AgentLoopStore) => Promise<T>): Promise<T> {
   const dir = await fs.mkdtemp(join(tmpdir(), "agentloops-guard-"));
@@ -27,12 +28,13 @@ test("guardGaps reports resolved guard-relevant tickets without an active guard"
     assert.equal(empty.summary.gaps, 0);
 
     // ISSUE (bug) resolved with no guard -> missing gap.
-    await store.resolveTicket({ id: "ISSUE-000001", summary: "patched", guardStatus: "none" });
+    await store.resolveTicket({ id: "ISSUE-000001", summary: "patched", guardStatus: "none", rootCauseCertificate: MINIMAL_ROOT_CAUSE_CERT });
     // USER resolved with a deferred guard -> deferred gap.
     await store.resolveTicket({
       id: "USER-000002",
       summary: "answered",
       guardStatus: "guard_deferred",
+      rootCauseCertificate: MINIMAL_ROOT_CAUSE_CERT,
     });
     // DEV (feature) resolved with no guard -> NOT guard-relevant by default.
     await store.resolveTicket({ id: "DEV-000003", summary: "shipped", guardStatus: "none" });
@@ -65,11 +67,13 @@ test("guardGaps treats active guards as covered and waived as opt-in", async () 
       id: "ISSUE-000001",
       summary: "patched",
       guardStatus: "guard_added",
+      rootCauseCertificate: MINIMAL_ROOT_CAUSE_CERT,
     });
     await store.resolveTicket({
       id: "USER-000002",
       summary: "answered",
       guardStatus: "guard_waived",
+      rootCauseCertificate: MINIMAL_ROOT_CAUSE_CERT,
     });
 
     const report = await store.guardGaps();

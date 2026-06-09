@@ -4,7 +4,9 @@ import {
   Confidence,
   PatternStatus,
   PriorArtHint,
+  PriorArtTrustLevel,
   ProjectConfig,
+  RootCauseCertificate,
   TicketKind,
   TicketStatus,
   VerificationBrief,
@@ -47,6 +49,11 @@ const COMMANDS = [
   "related",
   "prior-art-graph",
   "prior-art-refresh",
+  "prior-art-audit",
+  "sweep",
+  "classify-siblings",
+  "evidence-draft",
+  "resolve-draft",
   "dashboard",
   "serve",
   "config",
@@ -143,6 +150,28 @@ function printHelp() {
   printLine("                                  durable, decaying prior-art edges persisted for <id>");
   printLine("  prior-art-refresh [--min-score N] [--half-life-days N] [--prune-below N]");
   printLine("                                  recompute + persist the prior-art graph (write)");
+  printLine("  prior-art-audit [--cutoff-date YYYY-MM-DD] [--family ..] [--limit N]");
+  printLine("    [--apply] [--add-note] [--trust-level provisional|suspect|deprecated]");
+  printLine("                                  audit resolved tickets for weak prior art (read); --apply persists trust overlay (write)");
+  printLine("  sweep <id> [--candidate-limit N] [--prior-art-limit N] [--pattern-limit N]");
+  printLine("                                  symptom-family sweep: classify open/resolved tickets by symptom overlap before resolution");
+  printLine("  classify-siblings <seed-id> [--same-root <id>] [--adjacent <id>] [--unverified <id>] [--unrelated <id>]");
+  printLine("    [--reason ...] [--link-same-root]");
+  printLine("                                  persist sibling ticket classifications from sweep/expansion review (write)");
+  printLine("  evidence-draft <id> [--evidence-only] [--claim-scope ..] [--verify-command ..] [--file ..]");
+  printLine("    [--guard-status ..] [--guard-command ..] [--guard-artifact-ref ..] [--symptom ..] [--root-cause ..]");
+  printLine("    [--earliest-failure-stage ..] [--why-source-level-fix ..] [--affected-contract ..] [--regression-risk ..]");
+  printLine("                                  generate a verificationBrief + rootCauseCertificate scaffold; --evidence-only emits exact JSON");
+  printLine("  resolve-draft <id> [same options as evidence-draft]");
+  printLine("                                  same as evidence-draft but also emits a ready-to-edit resolve command with explicit guard flags");
+  printLine("");
+  printLine("Guard flags (resolve / evidence-draft / resolve-draft):");
+  printLine("  --guard-command <cmd>         concrete test/smoke command that acts as the regression guard");
+  printLine("  --guard-artifact-ref <path>   artifact path (test file, spec) referenced by the guard");
+  printLine("  --guard-detector-key <key>    stable detector/rule key that would catch recurrence");
+  printLine("");
+  printLine("JSON output: add --json to any command for machine-readable output; pipe with no extra flags:");
+  printLine("  agentloop list --json | jq '.tickets[].id'");
   printLine("  dashboard [--out file.html] [--stdout]  write a standalone HTML dashboard");
   printLine("  serve [--port N]                serve the dashboard over HTTP (default 4319)");
   printLine("  config                          print effective config");
@@ -342,7 +371,11 @@ async function cmdResolve(argv: string[], options: ArgMap) {
     verification: typeof options.verification === "string" ? options.verification : undefined,
     guardStatus: typeof options["guard-status"] === "string" ? (options["guard-status"] as string as any) : "none",
     guardSummary: typeof options["guard-summary"] === "string" ? options["guard-summary"] : undefined,
+    guardCommand: typeof options["guard-command"] === "string" ? options["guard-command"] : undefined,
+    guardArtifactRef: typeof options["guard-artifact-ref"] === "string" ? options["guard-artifact-ref"] : undefined,
+    guardDetectorKey: typeof options["guard-detector-key"] === "string" ? options["guard-detector-key"] : undefined,
     verificationBrief: parseVerificationBriefOption(options),
+    rootCauseCertificate: parseRootCauseCertOption(options),
   });
   printJson(ticket);
 }
@@ -367,6 +400,199 @@ function parseVerificationBriefOption(options: ArgMap): VerificationBrief | unde
     throw new Error("--verification-brief must be a JSON object matching the VerificationBrief shape");
   }
   return parsed as VerificationBrief;
+}
+
+/**
+ * Parses `--root-cause-certificate <json>` (or `--root-cause-cert <json>`) into
+ * a `RootCauseCertificate`. Meaningful fixed bugs/incidents/user-feedback
+ * tickets require this when `ProjectConfig.rootCause.meaningfulKinds` matches.
+ * Generate a scaffold first: `agentloop evidence-draft <id> --evidence-only`.
+ */
+function parseRootCauseCertOption(options: ArgMap): RootCauseCertificate | undefined {
+  const raw = options["root-cause-certificate"] ?? options["root-cause-cert"];
+  if (typeof raw !== "string" || raw.trim().length === 0) return undefined;
+  let source = raw;
+  if (raw.startsWith("@")) {
+    const { readFileSync } = require("node:fs");
+    try {
+      source = readFileSync(raw.slice(1), "utf8");
+    } catch (err) {
+      throw new Error(`--root-cause-certificate: could not read file ${raw}: ${(err as Error).message}`);
+    }
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch (err) {
+    throw new Error(`--root-cause-certificate must be valid JSON: ${(err as Error).message}`);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("--root-cause-certificate must be a JSON object");
+  }
+  return parsed as RootCauseCertificate;
+}
+
+/** Parses a list flag that can be repeated (e.g. `--file a --file b`). */
+function parseRepeatedFlag(options: ArgMap, key: string): string[] {
+  const raw = options[key];
+  if (!raw) return [];
+  if (typeof raw === "boolean") return [];
+  // Multiple `--key val` flags are joined with "\n" by the arg parser.
+  return String(raw).split("\n").map((s) => s.trim()).filter(Boolean);
+}
+
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_./:=@+-]+$/.test(value)) return value;
+  return `"${value.replace(/["\\$`]/g, "\\$&")}"`;
+}
+
+/**
+ * Generate an evidence JSON scaffold — `verificationBrief` + `rootCauseCertificate`
+ * — for the given ticket. Designed to be written to a temp file and passed to
+ * `agentloop resolve --root-cause-certificate @tmp/evidence.json`.
+ *
+ * With `--evidence-only` the output is the exact JSON object accepted by
+ * `resolve`'s `--root-cause-certificate` / `--verification-brief` flags.
+ * `resolve-draft` additionally emits a ready-to-edit CLI command.
+ */
+async function cmdEvidenceDraft(argv: string[], options: ArgMap, includeResolveCommand: boolean) {
+  const { store, config } = await ensureConfig();
+  const id = argv[1];
+  if (!id) throw new Error("evidence-draft requires <id>");
+  const ticket = await store.showTicket(id);
+  if (!ticket) throw new Error(`Ticket not found: ${id}`);
+
+  const key = ticket.aliases[0] ?? ticket.id;
+  const claimScope = typeof options["claim-scope"] === "string"
+    ? options["claim-scope"]
+    : "single_ticket";
+  const verificationPerformed = parseRepeatedFlag(options, "verify-command").length > 0
+    ? parseRepeatedFlag(options, "verify-command")
+    : ["TODO: run the test/smoke command that exercises this fix, e.g. npm test -- --grep '...'"];
+  const filesChanged = parseRepeatedFlag(options, "file").length > 0
+    ? parseRepeatedFlag(options, "file")
+    : ["TODO: src/path/to/changed-file.ts"];
+
+  const guardStatus = typeof options["guard-status"] === "string" ? options["guard-status"] : "guard_added|guard_existing|guard_waived|guard_deferred";
+  const guardType = typeof options["guard-type"] === "string" ? options["guard-type"] : "regression_test";
+  const guardCommand = typeof options["guard-command"] === "string" ? options["guard-command"] : null;
+  const guardArtifactRef = typeof options["guard-artifact-ref"] === "string" ? options["guard-artifact-ref"] : null;
+  const guardSummary = typeof options["guard-summary"] === "string" ? options["guard-summary"] : "TODO: name the regression guard, detector, smoke, or why this is waived/deferred";
+
+  const evidence = {
+    verificationBrief: {
+      claimScope,
+      affectedArtifactIds: typeof options["affected-artifact-id"] === "string"
+        ? [options["affected-artifact-id"]]
+        : [],
+      verificationPerformed,
+      coverage: typeof options.coverage === "string" ? options.coverage : `TODO: describe coverage (e.g. "single ticket: ${key}")`,
+      agentJudgment: "TODO_sufficient_or_not",
+      reason: "TODO: explain why this evidence proves the claimed scope, and why adjacent tickets are or are not covered.",
+    },
+    rootCauseCertificate: {
+      symptom: typeof options.symptom === "string" ? options.symptom : (ticket.title || "TODO: describe the visible failure symptom"),
+      rootCause: typeof options["root-cause"] === "string" ? options["root-cause"] : "TODO: state the code-level or architecture-level root cause (not just a restatement of the symptom)",
+      earliestFailureStage: typeof options["earliest-failure-stage"] === "string" ? options["earliest-failure-stage"] : "TODO: name the earliest stage where correct data became wrong or unavailable",
+      whySourceLevelFixOrWhyNot: typeof options["why-source-level-fix"] === "string" ? options["why-source-level-fix"] : "TODO: explain why the fix is at the earliest responsible layer, or why a downstream fix was chosen",
+      affectedContractOrInvariant: typeof options["affected-contract"] === "string" ? options["affected-contract"] : "TODO: name the contract/invariant that failed",
+      filesChanged,
+      guardDecision: guardSummary,
+      regressionRisk: typeof options["regression-risk"] === "string" ? options["regression-risk"] : "TODO: low|medium|high|critical|none",
+    },
+  };
+
+  const evidenceOnly = options["evidence-only"] === true;
+
+  if (evidenceOnly) {
+    printJson(evidence);
+    return;
+  }
+
+  // Full draft including suggested resolve command.
+  const evidencePath = typeof options["evidence-path"] === "string" ? options["evidence-path"] : "tmp/evidence.json";
+  const resolveArgs = [
+    "agentloop", "resolve", key,
+    `--summary ${shellQuote("...")}`,
+    `--guard-status ${guardStatus}`,
+    `--guard-type ${guardType}`,
+  ];
+  if (guardCommand) resolveArgs.push(`--guard-command ${shellQuote(guardCommand)}`);
+  if (guardArtifactRef) resolveArgs.push(`--guard-artifact-ref ${shellQuote(guardArtifactRef)}`);
+  resolveArgs.push(`--guard-summary ${shellQuote(guardSummary)}`);
+  resolveArgs.push(`--root-cause-certificate @${evidencePath}`);
+  resolveArgs.push(`--verification-brief @${evidencePath}`);
+
+  const draft = {
+    ticket: { id: ticket.id, title: ticket.title, status: ticket.status, family: ticket.family },
+    evidence,
+    guard: { status: guardStatus, type: guardType, command: guardCommand, artifactRef: guardArtifactRef, summary: guardSummary },
+    suggestedResolveCommand: resolveArgs.join(" \\\n  "),
+    notes: [
+      `Write evidence to ${evidencePath} and pass it with --root-cause-certificate @${evidencePath}`,
+      "Use --evidence-only for the exact JSON object accepted by resolve.",
+      "Replace every TODO field before resolving.",
+      "Set agentJudgment to \"sufficient\" only after verifying the claimed scope.",
+      "Use repeated --file / --verify-command flags instead of JSON arrays: --file src/a.ts --file src/b.ts",
+    ],
+  };
+
+  if (typeof options.json !== "undefined") {
+    printJson(draft);
+    return;
+  }
+
+  printLine(`Evidence draft for ${key} (${ticket.title})`);
+  printLine(JSON.stringify(evidence, null, 2));
+  if (includeResolveCommand) {
+    printLine("");
+    printLine("Suggested resolve command:");
+    printLine(`  ${draft.suggestedResolveCommand.replace(/\n/g, "\n  ")}`);
+  }
+  printLine("");
+  for (const note of draft.notes) printLine(`- ${note}`);
+}
+
+async function cmdSweep(argv: string[], options: ArgMap) {
+  const { store } = await ensureConfig();
+  const id = argv[1];
+  if (!id) throw new Error("sweep requires <id>");
+  const result = await store.sweep(id, {
+    candidateLimit: typeof options["candidate-limit"] === "string" ? Number(options["candidate-limit"]) : undefined,
+    priorArtLimit: typeof options["prior-art-limit"] === "string" ? Number(options["prior-art-limit"]) : undefined,
+    patternLimit: typeof options["pattern-limit"] === "string" ? Number(options["pattern-limit"]) : undefined,
+  });
+  printJson(result);
+}
+
+async function cmdClassifySiblings(argv: string[], options: ArgMap) {
+  const { store } = await ensureConfig();
+  const seedId = argv[1];
+  if (!seedId) throw new Error("classify-siblings requires <seed-id>");
+  const result = await store.classifySiblings({
+    seedId,
+    sameRoot: parseRepeatedFlag(options, "same-root"),
+    adjacent: parseRepeatedFlag(options, "adjacent"),
+    unverified: parseRepeatedFlag(options, "unverified"),
+    unrelated: parseRepeatedFlag(options, "unrelated"),
+    reason: typeof options.reason === "string" ? options.reason : undefined,
+    linkSameRoot: options["link-same-root"] === true,
+  });
+  printJson(result);
+}
+
+async function cmdPriorArtAudit(options: ArgMap) {
+  const { store } = await ensureConfig();
+  const result = await store.priorArtAudit({
+    cutoffDate: typeof options["cutoff-date"] === "string" ? options["cutoff-date"] : undefined,
+    family: typeof options.family === "string" ? options.family : undefined,
+    limit: typeof options.limit === "string" ? Number(options.limit) : undefined,
+    apply: options.apply === true,
+    addNote: options["add-note"] === true,
+    trustLevel: typeof options["trust-level"] === "string" ? (options["trust-level"] as PriorArtTrustLevel) : undefined,
+    overwrite: options.overwrite === true,
+  });
+  printJson(result);
 }
 
 async function cmdResolvePattern(argv: string[], options: ArgMap) {
@@ -731,6 +957,21 @@ async function main() {
       break;
     case "prior-art-refresh":
       await cmdPriorArtRefresh(options);
+      break;
+    case "prior-art-audit":
+      await cmdPriorArtAudit(options);
+      break;
+    case "sweep":
+      await cmdSweep(args, options);
+      break;
+    case "classify-siblings":
+      await cmdClassifySiblings(args, options);
+      break;
+    case "evidence-draft":
+      await cmdEvidenceDraft(args, options, false);
+      break;
+    case "resolve-draft":
+      await cmdEvidenceDraft(args, options, true);
       break;
     case "dashboard":
       await cmdDashboard(options);

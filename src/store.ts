@@ -1,18 +1,30 @@
 import {
+  ClassifySiblingsInput,
+  ClassifySiblingsResult,
   CreateTicketInput,
   GuardStatus,
   LoopState,
   NoteType,
   Pattern,
   PatternStatus,
+  PriorArtAuditOptions,
+  PriorArtAuditResult,
+  PriorArtAuditRow,
+  PriorArtTrustLevel,
   ProjectConfig,
   RedactionContext,
   ResolveInput,
+  SiblingClassification,
   Ticket,
   TicketRedactor,
+  TicketSweepResult,
   TicketStatus,
   VerificationBrief,
 } from "./types";
+import {
+  assertRootCauseCertificateForResolution,
+} from "./root-cause";
+import { sweepTicket, SweepOptions } from "./sweep";
 import { requiredFields } from "./config";
 import { resolveRedactor } from "./redaction";
 import { StateBackend, FilesystemStateBackend } from "./backend";
@@ -237,14 +249,15 @@ export class AgentLoopStore {
   }
 
   async resolveTicket(input: ResolveInput): Promise<Ticket> {
-    // Validate *before* transitioning: an evidence-sensitive resolution that
-    // fails the verification-brief guardrails should not move the ticket to
-    // "resolved" first and then throw, leaving it in a half-resolved state.
+    // Validate *before* transitioning: guardrails that fail should not move the
+    // ticket to "resolved" first and then throw, leaving it in a half-resolved
+    // state. All validation runs against the pre-transition ticket.
     const existing = await this.getTicketByAnyId(input.id);
     if (!existing) {
       throw new Error(`Ticket not found: ${input.id}`);
     }
     assertVerificationBriefForResolution(existing, input, this.config);
+    assertRootCauseCertificateForResolution(existing, input, this.config);
 
     const ticket = await this.transitionTicket(input.id, "resolved");
     const ctx = (field: string): RedactionContext => ({
@@ -261,9 +274,13 @@ export class AgentLoopStore {
     ticket.guardSummary = input.guardSummary
       ? this.redact(input.guardSummary, ctx("guardSummary"))
       : undefined;
+    ticket.guardCommand = input.guardCommand ?? undefined;
+    ticket.guardArtifactRef = input.guardArtifactRef ?? undefined;
+    ticket.guardDetectorKey = input.guardDetectorKey ?? undefined;
     ticket.verificationBrief = input.verificationBrief
       ? this.redactVerificationBrief(input.verificationBrief, ctx)
       : undefined;
+    ticket.rootCauseCertificate = input.rootCauseCertificate ?? undefined;
     await this.persist();
     return ticket;
   }
@@ -483,6 +500,237 @@ export class AgentLoopStore {
     await this.persist();
 
     return { pattern, resolvedTickets, alreadyResolvedTickets, escalatedVerification };
+  }
+
+  /**
+   * Symptom-family sweep for `rawId`. Read-only — searches open/resolved
+   * tickets and patterns for candidates sharing the seed's symptom tokens,
+   * classifies them into "likely same symptom" / "adjacent" / "historical
+   * prior art" buckets, and emits root-cause bucket prompts for agent
+   * classification. Never decides which bucket a candidate belongs in.
+   */
+  async sweep(rawId: string, options: SweepOptions = {}): Promise<TicketSweepResult> {
+    const state = await this.ensureInitialized();
+    const targetId = normalizeTicketInput(rawId, state.tickets);
+    const seed = state.tickets.find((t) => t.id === targetId);
+    if (!seed) throw new Error(`Ticket not found: ${rawId}`);
+    return sweepTicket(seed, state.tickets, state.patterns, options);
+  }
+
+  /**
+   * Persist sibling ticket classifications from a sweep or expansion review.
+   * Creates `triage` notes on each reviewed sibling and a summary note on the
+   * seed ticket. Does NOT auto-resolve any tickets.
+   *
+   * `--link-same-root` optionally creates a durable same-root prior-art link
+   * (stored as a `related_history` note — AgentLoops uses notes rather than a
+   * separate relationship table, consistent with the thin schema philosophy).
+   */
+  async classifySiblings(input: ClassifySiblingsInput): Promise<ClassifySiblingsResult> {
+    const state = await this.ensureInitialized();
+    const seedId = normalizeTicketInput(input.seedId, state.tickets);
+    const seed = state.tickets.find((t) => t.id === seedId);
+    if (!seed) throw new Error(`Seed ticket not found: ${input.seedId}`);
+
+    const reason = input.reason ?? "Sibling classification from sweep/expansion review.";
+
+    const categories: Array<{ key: SiblingClassification; ids: string[] }> = [
+      { key: "same_root", ids: input.sameRoot ?? [] },
+      { key: "adjacent", ids: input.adjacent ?? [] },
+      { key: "unverified", ids: input.unverified ?? [] },
+      { key: "unrelated", ids: input.unrelated ?? [] },
+    ];
+
+    const allClassified = categories.flatMap((cat) => cat.ids.map((id) => ({ key: cat.key, id })));
+    if (allClassified.length === 0) {
+      throw new Error("classifySiblings requires at least one ticket in sameRoot, adjacent, unverified, or unrelated.");
+    }
+
+    const classified: ClassifySiblingsResult["classified"] = [];
+
+    for (const { key, id } of allClassified) {
+      const targetId = normalizeTicketInput(id, state.tickets);
+      const target = state.tickets.find((t) => t.id === targetId);
+      if (!target || target.id === seedId) continue;
+
+      const label: Record<SiblingClassification, string> = {
+        same_root: "same root cause / accepted bucket",
+        adjacent: "adjacent or different root cause",
+        unverified: "unverified / artifacts unavailable",
+        unrelated: "unrelated",
+      };
+      const body = [
+        `Sibling classification from ${seedId}: ${label[key]}.`,
+        `Reason: ${reason}`,
+        key === "same_root"
+          ? "This ticket may be included in the same accepted verification bucket only if the implementation and evidence explicitly cover it."
+          : "Do not resolve this ticket from the seed fix unless later evidence shows the same root cause and verified coverage.",
+      ].join("\n");
+
+      target.notes.push({
+        id: `${target.id}-note-${Date.now()}-${classified.length}`,
+        type: "triage",
+        body: this.redact(body, this.noteCtx(target)),
+        createdAt: nowIso(),
+      });
+      target.updatedAt = nowIso();
+      classified.push({ ticketId: target.id, category: key });
+
+      if (key === "same_root" && input.linkSameRoot) {
+        // Record a durable same-root link as a related_history note on both sides.
+        const linkBody = `Same-root link to ${target.id}: ${reason}`;
+        seed.notes.push({
+          id: `${seed.id}-note-${Date.now()}-link-${classified.length}`,
+          type: "related_history",
+          body: this.redact(linkBody, this.noteCtx(seed)),
+          createdAt: nowIso(),
+        });
+      }
+    }
+
+    // Summary note on the seed.
+    const summaryLines = categories
+      .filter((cat) => cat.ids.length > 0)
+      .map((cat) => `${cat.key}: ${cat.ids.join(", ")}`);
+    seed.notes.push({
+      id: `${seed.id}-note-${Date.now()}-summary`,
+      type: "triage",
+      body: this.redact(
+        ["Sibling classification recorded.", ...summaryLines, `Reason: ${reason}`].join("\n"),
+        this.noteCtx(seed),
+      ),
+      createdAt: nowIso(),
+    });
+    seed.updatedAt = nowIso();
+    state.updatedAt = nowIso();
+    await this.persist();
+
+    return { seedId, classified, linkedSameRoot: Boolean(input.linkSameRoot) };
+  }
+
+  /**
+   * Non-destructive prior-art trust audit. Returns resolved tickets whose
+   * verification may be weak based on heuristic signals (missing guard, missing
+   * resolution summary, active same-family tickets, old resolution date, etc.).
+   *
+   * Pass `apply: true` to write `priorArtTrust` metadata to matching tickets.
+   * Pass `addNote: true` alongside `apply` to also write an explanatory triage
+   * note so the warning is visible in ticket detail.
+   */
+  async priorArtAudit(options: PriorArtAuditOptions = {}): Promise<PriorArtAuditResult> {
+    const state = await this.ensureInitialized();
+    const cutoffDate = options.cutoffDate ?? new Date().toISOString().slice(0, 10);
+    const cutoffMs = Date.parse(`${cutoffDate}T23:59:59Z`);
+    const family = options.family;
+    const limit = options.limit ?? 200;
+    const apply = options.apply ?? false;
+    const addNote = options.addNote ?? false;
+    const requestedLevel: PriorArtTrustLevel = options.trustLevel ?? "provisional";
+    const overwrite = options.overwrite ?? false;
+
+    // Count active tickets per family for the heuristic.
+    const activeFamilyCount = new Map<string, number>();
+    for (const t of state.tickets) {
+      if (t.status === "active" || t.status === "triaged" || t.status === "reopened") {
+        activeFamilyCount.set(t.family, (activeFamilyCount.get(t.family) ?? 0) + 1);
+      }
+    }
+
+    const candidates = state.tickets.filter((t) => {
+      if (t.status !== "resolved") return false;
+      if (!t.resolvedAt) return false;
+      if (family && t.family !== family) return false;
+      const resolvedMs = Date.parse(t.resolvedAt);
+      return Number.isFinite(resolvedMs) && resolvedMs <= cutoffMs;
+    });
+
+    const rows: PriorArtAuditRow[] = candidates.slice(0, limit).map((t) => {
+      const reasons: string[] = ["resolved on or before audit cutoff date"];
+      if (!t.verification && !t.verificationBrief) reasons.push("no verification evidence recorded");
+      if (!t.guardStatus || t.guardStatus === "none") {
+        if (["bug", "incident", "user_feedback"].includes(t.kind)) reasons.push("missing regression guard");
+      }
+      if (!t.resolutionSummary) reasons.push("missing resolution summary");
+      const active = activeFamilyCount.get(t.family) ?? 0;
+      if (active > 0) reasons.push(`${active} active same-family ticket(s) exist`);
+
+      const recommendedTrust: PriorArtTrustLevel = reasons.length > 1 ? "suspect" : "provisional";
+      return {
+        ticketId: t.id,
+        title: t.title,
+        family: t.family,
+        kind: t.kind,
+        status: t.status,
+        resolvedAt: t.resolvedAt ?? null,
+        hasVerification: Boolean(t.verification || t.verificationBrief),
+        hasGuard: Boolean(t.guardStatus && t.guardStatus !== "none"),
+        hasResolutionSummary: Boolean(t.resolutionSummary),
+        activeSameFamilyCount: active,
+        existingTrust: t.priorArtTrust?.level ?? null,
+        recommendedTrust,
+        reasons,
+      };
+    });
+
+    if (apply) {
+      const trustRank = (level: PriorArtTrustLevel | null): number => {
+        if (level === "deprecated") return 4;
+        if (level === "suspect") return 3;
+        if (level === "provisional") return 2;
+        if (level === "trusted") return 1;
+        return 0;
+      };
+      for (const row of rows) {
+        const ticket = state.tickets.find((t) => t.id === row.ticketId);
+        if (!ticket) continue;
+        const level = requestedLevel === "suspect" || requestedLevel === "deprecated"
+          ? requestedLevel
+          : row.recommendedTrust === "suspect" ? "provisional" : requestedLevel;
+        if (!overwrite && row.existingTrust && trustRank(row.existingTrust) >= trustRank(level)) {
+          row.applied = false;
+          row.noteCreated = false;
+          continue;
+        }
+        ticket.priorArtTrust = {
+          level,
+          auditStatus: "requires_review_before_reuse",
+          cutoffDate,
+          reasons: row.reasons,
+        };
+        ticket.updatedAt = nowIso();
+        row.existingTrust = level;
+        row.applied = true;
+        if (addNote) {
+          const noteBody = [
+            `Prior-art trust audit: resolution marked ${level}.`,
+            `Resolved on or before ${cutoffDate}. Treat as historical evidence and hypothesis, not settled proof, without independent re-verification.`,
+            `Audit reasons: ${row.reasons.join("; ")}.`,
+          ].join("\n");
+          ticket.notes.push({
+            id: `${ticket.id}-note-${Date.now()}-trust`,
+            type: "triage",
+            body: noteBody,
+            createdAt: nowIso(),
+          });
+          row.noteCreated = true;
+        }
+      }
+      state.updatedAt = nowIso();
+      await this.persist();
+    }
+
+    const byRecommendedTrust = rows.reduce<Record<string, number>>((acc, r) => {
+      acc[r.recommendedTrust] = (acc[r.recommendedTrust] ?? 0) + 1;
+      return acc;
+    }, {});
+
+    return {
+      cutoffDate,
+      count: rows.length,
+      byRecommendedTrust,
+      applied: rows.filter((r) => r.applied).length,
+      rows,
+    };
   }
 
   async summary() {

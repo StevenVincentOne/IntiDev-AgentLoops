@@ -11,11 +11,15 @@ import {
   GuardStatus,
   NoteType,
   Pattern,
+  PriorArtAuditResult,
   PriorArtHint,
+  PriorArtTrustLevel,
   ProjectConfig,
+  RootCauseCertificate,
   Severity,
   Ticket,
   TicketKind,
+  TicketSweepResult,
   TicketStatus,
   VerificationBrief,
 } from "./types";
@@ -36,6 +40,26 @@ const verificationBriefSchema = z.object({
   coverage: z.string().min(1),
   agentJudgment: z.string().min(1),
   reason: z.string().min(1),
+});
+
+/**
+ * Mirrors `RootCauseCertificate` for MCP input validation. Required for
+ * meaningful fixed bug/incident/user-feedback resolutions (see
+ * `ProjectConfig.rootCause`): deterministic rules check the certificate is
+ * present and that required fields are not TODO-placeholders; the agent
+ * remains responsible for the architectural correctness of the diagnosis.
+ *
+ * Generate a scaffold: `agentloop evidence-draft <id> --evidence-only`
+ */
+const rootCauseCertificateSchema = z.object({
+  symptom: z.string().min(1).describe("The visible failure symptom as experienced by a user or detector"),
+  rootCause: z.string().min(1).describe("The code-level or architecture-level root cause — not a restatement of the symptom"),
+  earliestFailureStage: z.string().min(1).describe("The earliest stage where correct data became incorrect or unavailable"),
+  whySourceLevelFixOrWhyNot: z.string().min(1).describe("Why the fix is at the earliest responsible layer, or why a downstream fix was chosen"),
+  affectedContractOrInvariant: z.string().min(1).describe("The contract or invariant that failed"),
+  filesChanged: z.array(z.string()).min(1).describe("Source files changed, or ['none: <reason>'] if no files changed"),
+  guardDecision: z.string().min(1).describe("Names the guard added/existing/waived/deferred and why it catches recurrence"),
+  regressionRisk: z.string().min(1).describe("Regression risk: low|medium|high|critical|none"),
 });
 
 /**
@@ -294,7 +318,11 @@ export async function resolveTool(
     verification?: string;
     guardStatus?: GuardStatus;
     guardSummary?: string;
+    guardCommand?: string;
+    guardArtifactRef?: string;
+    guardDetectorKey?: string;
     verificationBrief?: VerificationBrief;
+    rootCauseCertificate?: RootCauseCertificate;
   },
 ): Promise<WriteResult> {
   const ticket = await store.resolveTicket({
@@ -303,7 +331,11 @@ export async function resolveTool(
     verification: args.verification,
     guardStatus: args.guardStatus ?? "none",
     guardSummary: args.guardSummary,
+    guardCommand: args.guardCommand,
+    guardArtifactRef: args.guardArtifactRef,
+    guardDetectorKey: args.guardDetectorKey,
     verificationBrief: args.verificationBrief,
+    rootCauseCertificate: args.rootCauseCertificate,
   });
   return { ...envelope(), action: "resolved", ticket };
 }
@@ -353,6 +385,23 @@ export async function resolvePatternTool(
     alreadyResolvedTickets: result.alreadyResolvedTickets,
     escalatedVerification: result.escalatedVerification,
   };
+}
+
+export interface SweepToolResult extends Envelope {
+  kind: "sweep";
+  result: TicketSweepResult;
+}
+
+export interface ClassifySiblingsToolResult extends Envelope {
+  action: "classified_siblings";
+  seedId: string;
+  classified: Array<{ ticketId: string; category: string }>;
+  linkedSameRoot: boolean;
+}
+
+export interface PriorArtAuditToolResult extends Envelope {
+  kind: "prior_art_audit";
+  result: PriorArtAuditResult;
 }
 
 export async function guardTool(
@@ -739,6 +788,38 @@ export function createMcpServer(
     },
   );
 
+  server.registerTool(
+    "agentloop_sweep",
+    {
+      title: "Symptom-family sweep",
+      description:
+        "Read-only symptom-family sweep for a seed ticket. Searches open and resolved tickets in the same family (and across " +
+        "families) for candidates sharing the seed's symptom tokens; classifies them into 'likely same symptom' vs 'adjacent / " +
+        "different root cause' vs 'historical prior art' buckets; and emits rootCauseBuckets as prompts for agent classification. " +
+        "Run this between investigation and resolution for any definable symptom — the result is a flow regulator, not a verdict. " +
+        "Persist your classifications with agentloop_classify_siblings.",
+      inputSchema: {
+        id: z.string().describe("Ticket id or alias of the seed ticket"),
+        candidateLimit: z.number().int().positive().optional().describe("Max candidates per bucket (default 20)"),
+        priorArtLimit: z.number().int().positive().optional().describe("Max historical prior-art entries (default 15)"),
+        patternLimit: z.number().int().positive().optional().describe("Max pattern matches (default 10)"),
+      },
+      annotations: readOnly,
+    },
+    async (args) => {
+      try {
+        const result = await store.sweep(args.id, {
+          candidateLimit: args.candidateLimit,
+          priorArtLimit: args.priorArtLimit,
+          patternLimit: args.patternLimit,
+        });
+        return ok({ ...envelope(), kind: "sweep" as const, result });
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
   if (options.allowWrites) {
     registerWriteTools(server, store);
   }
@@ -844,11 +925,21 @@ function registerWriteTools(server: McpServer, store: AgentLoopStore): void {
         verification: z.string().optional(),
         guardStatus: z.enum(GUARD_STATUSES).optional(),
         guardSummary: z.string().optional(),
+        guardCommand: z.string().optional().describe("Concrete test/smoke command serving as the regression guard, e.g. 'npm test -- --grep ...'"),
+        guardArtifactRef: z.string().optional().describe("Artifact path (test file, spec, detector config) referenced by the guard"),
+        guardDetectorKey: z.string().optional().describe("Stable detector/rule key that would catch recurrence"),
         verificationBrief: verificationBriefSchema
           .optional()
           .describe(
             "Required for evidence-sensitive resolutions: { claimScope, affectedArtifactIds?, reportedLocations?, " +
               "verificationPerformed, coverage, agentJudgment, reason }. See docs/agent-integration.md for the full shape and philosophy.",
+          ),
+        rootCauseCertificate: rootCauseCertificateSchema
+          .optional()
+          .describe(
+            "Required for meaningful fixed bug/incident/user-feedback resolutions (see config.rootCause): " +
+              "{ symptom, rootCause, earliestFailureStage, whySourceLevelFixOrWhyNot, affectedContractOrInvariant, " +
+              "filesChanged, guardDecision, regressionRisk }. Generate a scaffold: agentloop evidence-draft <id> --evidence-only",
           ),
       },
       annotations: write,
@@ -1013,6 +1104,115 @@ function registerWriteTools(server: McpServer, store: AgentLoopStore): void {
     async (args) => {
       try {
         return ok(await store.repairWorkflow({ family: args.family, dryRun: args.dryRun }));
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "agentloop_classify_siblings",
+    {
+      title: "Persist sibling ticket classifications",
+      description:
+        "Persist sibling classifications from a symptom-family sweep or manual triage onto the seed ticket and its reviewed siblings. " +
+        "Each sibling receives a triage note recording whether it is same_root, adjacent, unverified, or unrelated to the seed. " +
+        "The seed ticket receives a summary triage note listing all reviewed siblings. " +
+        "Use this after agentloop_sweep to make sweep decisions durable before resolving the seed. " +
+        "Mutates and saves ledger state.",
+      inputSchema: {
+        seedId: z.string().describe("Ticket id or alias of the seed (the ticket being fixed)"),
+        sameRoot: z
+          .array(z.string())
+          .optional()
+          .describe("Ticket ids confirmed to share the exact same root cause as the seed"),
+        adjacent: z
+          .array(z.string())
+          .optional()
+          .describe("Ticket ids with a related but distinct root cause — keep open"),
+        unverified: z
+          .array(z.string())
+          .optional()
+          .describe("Ticket ids reviewed but inconclusive — more investigation needed"),
+        unrelated: z
+          .array(z.string())
+          .optional()
+          .describe("Ticket ids confirmed unrelated to the seed symptom"),
+        reason: z
+          .string()
+          .optional()
+          .describe("Optional free-text rationale recorded on the seed's summary note"),
+        linkSameRoot: z
+          .boolean()
+          .optional()
+          .describe(
+            "If true, also record a related_history note on each same-root sibling (default false)",
+          ),
+      },
+      annotations: write,
+    },
+    async (args) => {
+      try {
+        return ok(
+          await store.classifySiblings({
+            seedId: args.seedId,
+            sameRoot: args.sameRoot,
+            adjacent: args.adjacent,
+            unverified: args.unverified,
+            unrelated: args.unrelated,
+            reason: args.reason,
+            linkSameRoot: args.linkSameRoot,
+          }),
+        );
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "agentloop_prior_art_audit",
+    {
+      title: "Audit and annotate prior-art trust on resolved tickets",
+      description:
+        "Heuristic audit of resolved tickets whose verification may be stale, too brief, or provisional. " +
+        "Returns an audit report with a recommended trust level (trusted/provisional/suspect/deprecated) for each candidate. " +
+        "Without --apply this is a read-only preview. " +
+        "With apply: true, each candidate's priorArtTrust metadata is written and a triage note is appended. " +
+        "Use after a code-base overhaul, dependency upgrade, or when sweep surfaces many prior-art candidates with stale evidence. " +
+        "Optionally scope to a single family or a cutoff date.",
+      inputSchema: {
+        apply: z
+          .boolean()
+          .optional()
+          .describe("If true, write the recommended trust level and a triage note onto each audited ticket. Default false (preview only)."),
+        family: z.string().optional().describe("Limit audit to tickets in this family"),
+        cutoffDate: z
+          .string()
+          .optional()
+          .describe("ISO date string — only tickets resolved before this date are audited"),
+        addNote: z
+          .boolean()
+          .optional()
+          .describe("If true (and apply is true), append a triage note to each audited ticket explaining the trust decision. Default true."),
+        trustLevel: z
+          .enum(["trusted", "provisional", "suspect", "deprecated"])
+          .optional()
+          .describe("Override: force this trust level on all audited tickets instead of computing a recommendation per-ticket"),
+      },
+      annotations: write,
+    },
+    async (args) => {
+      try {
+        return ok(
+          await store.priorArtAudit({
+            apply: args.apply,
+            family: args.family,
+            cutoffDate: args.cutoffDate,
+            addNote: args.addNote,
+            trustLevel: args.trustLevel as PriorArtTrustLevel | undefined,
+          }),
+        );
       } catch (error) {
         return fail(error);
       }

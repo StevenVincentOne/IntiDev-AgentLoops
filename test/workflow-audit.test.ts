@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { DEFAULT_CONFIG } from "../src/config";
 import { AgentLoopStore } from "../src/store";
 import { seedConvergenceDemo } from "../scripts/demo-seed";
+import { MINIMAL_ROOT_CAUSE_CERT } from "./helpers";
 
 async function withSeededStore<T>(run: (store: AgentLoopStore) => Promise<T>): Promise<T> {
   const dir = await fs.mkdtemp(join(tmpdir(), "agentloops-workflow-audit-"));
@@ -54,7 +55,7 @@ test("workflowAudit flags a resolved pattern with active (and reopened) linked t
     assert.equal(flagged.tickets.length, 3);
 
     // One of the linked tickets reopens -> stronger signal, separate bucket.
-    await store.resolveTicket({ id: "ISSUE-000001", summary: "patched" });
+    await store.resolveTicket({ id: "ISSUE-000001", summary: "patched", rootCauseCertificate: MINIMAL_ROOT_CAUSE_CERT });
     await store.reopenTicket("ISSUE-000001", "regressed in prod");
 
     const afterReopen = await store.workflowAudit();
@@ -74,8 +75,8 @@ test("workflowAudit flags an active pattern whose linked tickets are all closed 
     assert.equal(pattern.status, "active");
 
     // Close out every linked ticket without ever resolving the pattern itself.
-    await store.resolveTicket({ id: "ISSUE-000001", summary: "patched" });
-    await store.resolveTicket({ id: "USER-000002", summary: "answered" });
+    await store.resolveTicket({ id: "ISSUE-000001", summary: "patched", rootCauseCertificate: MINIMAL_ROOT_CAUSE_CERT });
+    await store.resolveTicket({ id: "USER-000002", summary: "answered", rootCauseCertificate: MINIMAL_ROOT_CAUSE_CERT });
     await store.deferTicket("DEV-000003", "deprioritized");
 
     const report = await store.workflowAudit();

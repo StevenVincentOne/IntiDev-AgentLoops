@@ -66,6 +66,40 @@ project can override any of them, or raise the default match threshold:
 
 Omit `priorArt` entirely to use the core defaults.
 
+### Root Cause Certificate for meaningful fixed bugs (optional)
+
+On by default for `kind: bug | incident | user_feedback`. When enabled,
+`agentloop resolve`/`agentloop_resolve` rejects a resolution of a matching
+ticket unless `rootCauseCertificate` is also provided. The certificate is a
+required *reasoning surface* — the ledger checks that you made an explicit
+architectural claim, not that the claim is correct.
+
+```json
+{
+  "rootCause": {
+    "meaningfulKinds": ["bug", "incident", "user_feedback"],
+    "minFieldLength": 20
+  }
+}
+```
+
+- **`meaningfulKinds`** — which ticket kinds require a certificate on
+  resolution. Defaults to `["bug", "incident", "user_feedback"]`. Set to `[]`
+  to opt out entirely (useful for projects that treat bugs as lightweight tasks).
+- **`minFieldLength`** — minimum character length for each text field in the
+  certificate. Defaults to `20`. The `regressionRisk` field uses a shorter floor
+  (`3`) so short values like `"low"` are accepted.
+
+Generate a scaffold before filling one in:
+
+```sh
+agentloop evidence-draft <id> --evidence-only   # JSON object only
+agentloop resolve-draft <id>                    # ready-to-edit resolve command
+```
+
+See [Root Cause Certificate](agent-integration.md#root-cause-certificate-required-for-meaningful-fixed-bugs)
+in agent-integration.md for the full certificate shape and philosophy.
+
 ### Verification briefs for evidence-sensitive domains (optional)
 
 Off by default — every ticket keeps the lightweight `agentloop resolve
