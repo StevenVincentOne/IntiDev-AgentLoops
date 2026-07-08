@@ -133,7 +133,7 @@ Read-only tools (annotated `readOnlyHint`):
 | Tool | Purpose |
 | --- | --- |
 | `agentloop_summary` | loop health metrics (ticket and pattern counts) |
-| `agentloop_list` | list tickets, optional `status` / `kind` filters |
+| `agentloop_list` | list tickets, optional `status` / `kind` / `family` / `queue` filters |
 | `agentloop_show` | one ticket (by `ISSUE-`/alias) or a `PATTERN-` id |
 | `agentloop_handoff` | copyable agent handoff prompt for a ticket |
 | `agentloop_convergence` | patterns whose tickets span multiple sources |

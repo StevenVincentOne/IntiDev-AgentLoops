@@ -27,7 +27,7 @@ Always available; annotated `readOnlyHint: true`.
 | Tool | Input | Returns |
 | --- | --- | --- |
 | `agentloop_summary` | none | `{ schemaVersion, generatedAt, summary }` — ticket/pattern counts |
-| `agentloop_list` | `status?`, `kind?` | `{ ..., filters, count, tickets }` |
+| `agentloop_list` | `status?`, `kind?`, `family?`, `queue?` | `{ ..., filters, count, tickets }` |
 | `agentloop_show` | `id` | `{ ..., kind: "ticket", ticket }` or `{ ..., kind: "pattern", pattern }` |
 | `agentloop_handoff` | `id` | `{ ..., ticketId, aliases, prompt }` |
 | `agentloop_convergence` | `family?`, `minSources?`, `includeAll?` | `{ ..., filters, summary, patterns }` — patterns whose tickets span ≥ `minSources` (default 2) distinct sources |
@@ -63,7 +63,8 @@ Notes:
 
 - `id` accepts the canonical `ISSUE-NNNNNN` id, any queue alias (`DEV-...`,
   `USER-...`, etc.), or a `PATTERN-NNNNNN` id for `agentloop_show`.
-- `status` (for `agentloop_list`) accepts `triaged | active | resolved | reopened | deferred | all`.
+- `status` (for `agentloop_list`) accepts `triaged | active | resolved | reopened | deferred | open | all`.
+- `family` and `queue` (for `agentloop_list`) narrow the surface by domain and queue alias (`issues`, `development`, `user`, `ISSUE`, `DEV`, `USER`).
 - `kind`, `severity`, `confidence`, `guardStatus`, and note `type` are validated
   against the configured/known values; invalid inputs return a readable error.
 - Every envelope includes `schemaVersion` (currently `1`) and `generatedAt`.

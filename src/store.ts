@@ -210,6 +210,8 @@ export class AgentLoopStore {
   async listTickets(opts: {
     status?: TicketStatus | "all";
     kind?: string;
+    family?: string;
+    queue?: string;
   }): Promise<Ticket[]> {
     const state = await this.ensureInitialized();
     let rows = [...state.tickets];
@@ -218,6 +220,13 @@ export class AgentLoopStore {
     }
     if (opts.kind) {
       rows = rows.filter((ticket) => ticket.kind === opts.kind);
+    }
+    if (opts.family) {
+      rows = rows.filter((ticket) => ticket.family === opts.family);
+    }
+    if (opts.queue) {
+      const prefix = opts.queue.toUpperCase();
+      rows = rows.filter((ticket) => ticket.aliases.some((alias) => alias.startsWith(`${prefix}-`)));
     }
     return rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }

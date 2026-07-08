@@ -64,11 +64,18 @@ test("listTool filters by status and kind", async () => {
     const all = await listTool(store);
     assert.equal(all.count, 3);
     assert.equal(all.tickets.length, 3);
-    assert.deepEqual(all.filters, { status: "all", kind: null });
+    assert.deepEqual(all.filters, { status: "all", kind: null, family: null, queue: null });
 
     const features = await listTool(store, { kind: "feature" });
     assert.equal(features.count, 1);
     assert.equal(features.tickets[0]?.aliases[0], "DEV-000003");
+
+    const issues = await listTool(store, { queue: "issues" });
+    assert.equal(issues.count, 1);
+    assert.equal(issues.tickets[0]?.aliases[0], "ISSUE-000001");
+
+    const pipeline = await listTool(store, { family: "export_pipeline" });
+    assert.equal(pipeline.count, 3);
 
     const resolved = await listTool(store, { status: "resolved" });
     assert.equal(resolved.count, 0);

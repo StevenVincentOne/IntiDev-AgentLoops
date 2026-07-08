@@ -2,6 +2,7 @@
 import { loadConfig, writeDefaultConfig } from "./config";
 import {
   Confidence,
+  Ticket,
   PatternStatus,
   PriorArtHint,
   PriorArtTrustLevel,
@@ -26,9 +27,15 @@ const COMMANDS = [
   "init",
   "create",
   "list",
+  "next",
+  "prioritize",
+  "issues",
+  "user",
+  "development",
   "show",
   "patterns",
   "begin",
+  "workflow",
   "resolve",
   "reopen",
   "defer",
@@ -96,6 +103,38 @@ function toArray(value?: string | boolean): string[] {
     .filter(Boolean);
 }
 
+type StatusFilter = TicketStatus | "all" | "open";
+
+function normalizeStatusFilter(value: unknown): StatusFilter | null {
+  if (typeof value !== "string") return null;
+  const status = value.toLowerCase();
+  if (status === "open" || status === "all" || status === "triaged" || status === "active" || status === "resolved" || status === "reopened" || status === "deferred") {
+    return status as StatusFilter;
+  }
+  return null;
+}
+
+function isOpenStatus(status: TicketStatus): boolean {
+  return status === "triaged" || status === "active" || status === "reopened";
+}
+
+function applyStatusFilter<T extends { status: TicketStatus }>(tickets: T[], status: StatusFilter): T[] {
+  if (status === "all") return tickets;
+  if (status === "open") return tickets.filter((ticket) => isOpenStatus(ticket.status));
+  return tickets.filter((ticket) => ticket.status === status);
+}
+
+function resolveQueueAlias(config: ProjectConfig, label: string): string | undefined {
+  const requested = label.trim().toLowerCase();
+  const configured = config.queues.find((entry) => entry.prefix.toLowerCase() === requested);
+  if (configured) return configured.prefix;
+  if (requested === "issues") return "ISSUE";
+  if (requested === "development") return "DEV";
+  if (requested === "user") return "USER";
+  if (requested === "users") return "USER";
+  return undefined;
+}
+
 function printLine(...parts: unknown[]) {
   process.stdout.write(parts.join(" ") + "\n");
 }
@@ -114,10 +153,19 @@ function printHelp() {
   printLine("  init                            initialize a project loop");
   printLine("  create --title ... --summary ... [--prior-art-hint new|previously_ticketed|existing_pattern|adjacent_issues]");
   printLine("                                  create a new issue/feature/feedback; a non-'new' hint auto-checks for prior art");
-  printLine("  list [--status triaged|active|resolved|all] list tickets");
+  printLine("  list [--status triaged|active|resolved|reopened|deferred|open|all] [--kind ..] [--family ..] [--queue ..]  list tickets");
+  printLine("  next [--family ..] [--queue ..] [--status triaged|active|reopened|deferred|open|all] [--limit 10]");
+  printLine("                                  suggest the next highest-value actionable items");
+  printLine("  prioritize [--family ..] [--queue ..] [--status triaged|active|reopened|deferred|open|all] [--limit 5]");
+  printLine("                                  alias for next");
+  printLine("  issues [--status ..] list open/active issue tickets (default open)");
+  printLine("  user [--status ..] list open/active user tickets (default open)");
+  printLine("  development [--status ..] list open/active development tickets (default open)");
   printLine("  show <id>                       inspect ticket");
   printLine("  patterns [--status open|active|resolved|all] list patterns");
   printLine("  begin <id>                      begin a triaged item");
+  printLine("  workflow <id> --status active|reopened|deferred [--summary ..]");
+  printLine("                                  explicit workflow transition (alias: begin/defer/reopen)");
   printLine("  resolve <id> --summary ... [--verification ..] [--verification-brief <json>]");
   printLine("                                  resolve a ticket; evidence-sensitive families/kinds (see config.verification)");
   printLine("                                  require --verification-brief — see docs/agent-integration.md for the shape");
@@ -164,6 +212,10 @@ function printHelp() {
   printLine("                                  generate a verificationBrief + rootCauseCertificate scaffold; --evidence-only emits exact JSON");
   printLine("  resolve-draft <id> [same options as evidence-draft]");
   printLine("                                  same as evidence-draft but also emits a ready-to-edit resolve command with explicit guard flags");
+  printLine("  knowledge-draft [same options as evidence-draft]");
+  printLine("                                  alias for evidence-draft");
+  printLine("  record-fix --title ... --ticket-summary ... --resolution-summary ...");
+  printLine("                                  create + resolve in one command (same guard/verification flags as resolve)");
   printLine("");
   printLine("Guard flags (resolve / evidence-draft / resolve-draft):");
   printLine("  --guard-command <cmd>         concrete test/smoke command that acts as the regression guard");
@@ -287,13 +339,51 @@ async function cmdCreate(argv: string[], options: ArgMap) {
   }
 }
 
+interface ListOptions {
+  status: StatusFilter;
+  kind?: string;
+  family?: string;
+  queue?: string;
+}
+
+function parseListOptions(options: ArgMap): ListOptions {
+  const normalizedStatus = normalizeStatusFilter(options.status);
+  if (options.status && normalizedStatus === null) {
+    throw new Error("Invalid status. Use triaged|active|resolved|reopened|deferred|open|all.");
+  }
+  const status = normalizedStatus ?? "all";
+  const kind = typeof options.kind === "string" ? options.kind : undefined;
+  const family = typeof options.family === "string" ? options.family : undefined;
+  const queue = typeof options.queue === "string" ? options.queue : undefined;
+  return { status, kind, family, queue };
+}
+
+async function listTicketsWithOptions(options: ListOptions, overrides: Partial<ListOptions> = {}) {
+  const { store, config } = await ensureConfig();
+  const merged: ListOptions = { ...options, ...overrides };
+  const statusFilter = merged.status;
+  const status = statusFilter === "all" || statusFilter === "open" ? "all" : statusFilter;
+  const queue = merged.queue ? resolveQueueAlias(config, merged.queue) : undefined;
+  if (merged.queue && !queue) {
+    throw new Error(`Unknown queue '${merged.queue}'. Use --queue <ISSUE|DEV|USER> or use issues/user/development commands.`);
+  }
+
+  const rows = applyStatusFilter(
+    await store.listTickets({
+      status,
+      kind: merged.kind,
+      family: merged.family,
+      queue,
+    }),
+    statusFilter,
+  );
+
+  return { config, rows, queue };
+}
+
 async function cmdList(argv: string[], options: ArgMap) {
-  const { store } = await ensureConfig();
-  const status = options.status ? (options.status as string as TicketStatus) : "all";
-  const rows = await store.listTickets({
-    status: status as TicketStatus | "all",
-    kind: typeof options.kind === "string" ? options.kind : undefined,
-  });
+  const parsed = parseListOptions(options);
+  const { rows, queue } = await listTicketsWithOptions(parsed);
   if (options.json) {
     printJson(rows);
     return;
@@ -304,8 +394,170 @@ async function cmdList(argv: string[], options: ArgMap) {
     );
     printLine(`  ${ticket.title}`);
   }
+  if (queue) {
+    printLine(`Queue: ${queue}`);
+  }
   if (rows.length === 0) {
     printLine("No tickets found");
+  }
+}
+
+async function cmdQueueList(label: string, argv: string[], options: ArgMap) {
+  const { store, config } = await ensureConfig();
+  const normalizedStatus = normalizeStatusFilter(options.status);
+  if (options.status && normalizedStatus === null) {
+    throw new Error("Invalid status. Use triaged|active|resolved|reopened|deferred|open|all.");
+  }
+  const status: StatusFilter = normalizedStatus ?? "open";
+  const queue = resolveQueueAlias(config, label) ?? resolveQueueAlias(config, label.toUpperCase());
+  if (!queue) {
+    throw new Error(`Unknown queue alias: ${label}`);
+  }
+  const rows = applyStatusFilter(
+    await store.listTickets({
+      status: status === "all" || status === "open" ? "all" : status,
+      queue,
+    }),
+    status,
+  );
+  if (options.json) {
+    printJson(rows);
+    return;
+  }
+  for (const ticket of rows) {
+    printLine(`${shortSummary(ticket.status)} ${ticket.id} ${ticket.aliases[0] ?? ""} ${ticket.kind} [${ticket.family}]`);
+    printLine(`  ${ticket.title}`);
+  }
+  if (rows.length === 0) {
+    printLine(`No ${label} queue tickets found`);
+  }
+}
+
+function scoreNextTicket(
+  ticket: Ticket,
+  patternOpenMembers: Map<string, number>,
+): { score: number; reasons: string[] } {
+  let score = 0;
+  const reasons: string[] = [];
+
+  if (ticket.status === "reopened") {
+    score += 90;
+    reasons.push("reopened");
+  } else if (ticket.status === "active") {
+    score += 80;
+    reasons.push("active");
+  } else if (ticket.status === "triaged") {
+    score += 70;
+    reasons.push("triaged");
+  } else if (ticket.status === "deferred") {
+    score += 20;
+    reasons.push("deferred");
+  }
+
+  if (ticket.severity === "critical") {
+    score += 40;
+    reasons.push("critical");
+  } else if (ticket.severity === "high") {
+    score += 30;
+    reasons.push("high severity");
+  } else if (ticket.severity === "medium") {
+    score += 18;
+    reasons.push("medium severity");
+  }
+
+  if (ticket.kind === "incident") {
+    score += 12;
+    reasons.push("incident");
+  }
+  if (ticket.kind === "bug") {
+    score += 8;
+    reasons.push("bug");
+  }
+
+  if (ticket.patternId && patternOpenMembers.has(ticket.patternId)) {
+    const linked = patternOpenMembers.get(ticket.patternId) ?? 1;
+    score += Math.max(0, linked * 7);
+    reasons.push(`shared pattern (${linked} active)`);
+  }
+  if (!ticket.patternId && ticket.kind === "incident") {
+    score += 5;
+  }
+  if (ticket.source === "user_report" || ticket.source === "smoke" || ticket.source === "ci") {
+    score += 10;
+    reasons.push("high-confidence source");
+  }
+
+  return { score, reasons };
+}
+
+async function cmdNext(argv: string[], options: ArgMap) {
+  const { store, config } = await ensureConfig();
+  const parsed = parseListOptions(options);
+  const queue = parsed.queue ? resolveQueueAlias(config, parsed.queue) : undefined;
+  if (parsed.queue && !queue) {
+    throw new Error(
+      `Unknown queue '${parsed.queue}'. Use --queue <ISSUE|DEV|USER>, issues, user, or development.`,
+    );
+  }
+  const family = parsed.family;
+  const limit = typeof options.limit === "string" ? Number.parseInt(options.limit, 10) : 10;
+  const status = parsed.status;
+  const rows = applyStatusFilter(
+    await store.listTickets({
+      status: status === "all" || status === "open" ? "all" : status,
+      queue,
+      family,
+    }),
+    status,
+  );
+
+  const patterns = await store.listPatterns({ status: "all" });
+  const openPatternIds = new Map<string, number>();
+  for (const pattern of patterns) {
+    if (pattern.status === "resolved") continue;
+    let openCount = 0;
+    for (const id of pattern.ticketIds) {
+      const ticket = rows.find((candidate) => candidate.id === id);
+      if (!ticket) continue;
+      if (ticket.status !== "resolved") openCount += 1;
+    }
+    if (openCount > 1) {
+      openPatternIds.set(pattern.id, openCount);
+    }
+  }
+
+  const candidates = rows
+    .filter((ticket) => ticket.status !== "resolved")
+    .map((ticket) => {
+      const ranked = scoreNextTicket(ticket, openPatternIds);
+      return { ticket, score: ranked.score, reasons: ranked.reasons };
+    })
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return b.ticket.updatedAt.localeCompare(a.ticket.updatedAt);
+    })
+    .slice(0, Number.isFinite(limit) && limit > 0 ? limit : 5);
+
+  if (options.json) {
+    printJson({ queue, family, status, candidates });
+    return;
+  }
+  if (candidates.length === 0) {
+    printLine("No open candidates found");
+    return;
+  }
+
+  for (const candidate of candidates) {
+    const t = candidate.ticket;
+    printLine(
+      `${shortSummary(t.status)} ${t.aliases[0] ?? t.id} ${t.id} score=${candidate.score.toString().padStart(3, "0")} ` +
+        `[${t.kind}] [${t.family}]`,
+    );
+    printLine(`  ${t.title}`);
+    printLine(`  Why: ${candidate.reasons.join(", ")}`);
+    if (t.patternId) {
+      printLine(`  Pattern: ${t.patternId}`);
+    }
   }
 }
 
@@ -553,6 +805,68 @@ async function cmdEvidenceDraft(argv: string[], options: ArgMap, includeResolveC
   for (const note of draft.notes) printLine(`- ${note}`);
 }
 
+async function cmdKnowledgeDraft(argv: string[], options: ArgMap) {
+  await cmdEvidenceDraft(argv, options, false);
+}
+
+async function cmdRecordFix(argv: string[], options: ArgMap) {
+  const { store, config } = await ensureConfig();
+  const title = typeof options.title === "string" ? options.title : "";
+  const bugSummary = typeof options["ticket-summary"] === "string" ? (options["ticket-summary"] as string) : "";
+  const resolutionSummary = typeof options["resolution-summary"] === "string" ? (options["resolution-summary"] as string) : "";
+  const family = typeof options.family === "string" ? options.family : config.patterns.defaultFamily;
+  const kind = (typeof options.kind === "string" ? options.kind : "bug") as TicketKind;
+  const source = typeof options.source === "string" ? options.source : "agent";
+  const severity = (typeof options.severity === "string"
+    ? options.severity
+    : (config.ticketKinds.find((entry) => entry.kind === kind)?.defaultSeverity ?? "medium")) as string;
+  const confidence = (typeof options.confidence === "string" ? options.confidence : "medium") as
+    | "low"
+    | "medium"
+    | "high";
+
+  if (!title || !bugSummary || !resolutionSummary) {
+    throw new Error(
+      "record-fix requires --title, --ticket-summary, and --resolution-summary. Optional --family/--kind/--source as create inputs.",
+    );
+  }
+
+  const created = await store.createTicket({
+    title,
+    summary: bugSummary,
+    family,
+    kind,
+    source,
+    severity: severity as any,
+    confidence,
+    tags: toArray(options.tags),
+  });
+
+  const resolved = await store.resolveTicket({
+    id: created.id,
+    summary: resolutionSummary,
+    verification: typeof options.verification === "string" ? options.verification : undefined,
+    guardStatus: typeof options["guard-status"] === "string" ? (options["guard-status"] as string as any) : "none",
+    guardSummary: typeof options["guard-summary"] === "string" ? options["guard-summary"] : undefined,
+    guardCommand: typeof options["guard-command"] === "string" ? options["guard-command"] : undefined,
+    guardArtifactRef: typeof options["guard-artifact-ref"] === "string" ? options["guard-artifact-ref"] : undefined,
+    guardDetectorKey: typeof options["guard-detector-key"] === "string" ? options["guard-detector-key"] : undefined,
+    verificationBrief: parseVerificationBriefOption(options),
+    rootCauseCertificate: parseRootCauseCertOption(options),
+  });
+
+  if (options.json) {
+    printJson({
+      action: "recorded",
+      queue: resolved.aliases[0] ?? resolved.id,
+      createdId: created.id,
+      ticket: resolved,
+    });
+    return;
+  }
+  printLine(`record-fix created and resolved ${resolved.id} (${resolved.aliases[0] ?? "no alias"})`);
+}
+
 async function cmdSweep(argv: string[], options: ArgMap) {
   const { store } = await ensureConfig();
   const id = argv[1];
@@ -619,6 +933,27 @@ async function cmdReopen(argv: string[], options: ArgMap) {
   const reason = typeof options.summary === "string" ? options.summary : "recurrence detected";
   if (!id) throw new Error("reopen requires <id>");
   const ticket = await store.reopenTicket(id, reason);
+  printJson(ticket);
+}
+
+async function cmdWorkflow(argv: string[], options: ArgMap) {
+  const { store } = await ensureConfig();
+  const id = argv[1];
+  const status = normalizeStatusFilter(options.status);
+  if (!status || status === "all" || status === "open") {
+    throw new Error("workflow requires --status active|reopened|deferred");
+  }
+  if (!id) {
+    throw new Error("workflow requires <id> and --status active|reopened|deferred");
+  }
+  let ticket;
+  if (status === "active") {
+    ticket = await store.beginTicket(id);
+  } else if (status === "reopened") {
+    ticket = await store.reopenTicket(id, typeof options.summary === "string" ? options.summary : "recurrence detected");
+  } else {
+    ticket = await store.deferTicket(id, typeof options.summary === "string" ? options.summary : undefined);
+  }
   printJson(ticket);
 }
 
@@ -886,6 +1221,21 @@ async function main() {
     case "list":
       await cmdList(args, options);
       break;
+    case "next":
+      await cmdNext(args, options);
+      break;
+    case "prioritize":
+      await cmdNext(args, { ...options, ...{ limit: (options.limit ?? "5") } });
+      break;
+    case "issues":
+      await cmdQueueList("issues", args, options);
+      break;
+    case "user":
+      await cmdQueueList("user", args, options);
+      break;
+    case "development":
+      await cmdQueueList("development", args, options);
+      break;
     case "show":
       await cmdShow(args);
       break;
@@ -894,6 +1244,9 @@ async function main() {
       break;
     case "begin":
       await cmdBegin(args);
+      break;
+    case "workflow":
+      await cmdWorkflow(args, options);
       break;
     case "resolve":
       await cmdResolve(args, options);
@@ -969,6 +1322,12 @@ async function main() {
       break;
     case "evidence-draft":
       await cmdEvidenceDraft(args, options, false);
+      break;
+    case "knowledge-draft":
+      await cmdKnowledgeDraft(args, options);
+      break;
+    case "record-fix":
+      await cmdRecordFix(args, options);
       break;
     case "resolve-draft":
       await cmdEvidenceDraft(args, options, true);

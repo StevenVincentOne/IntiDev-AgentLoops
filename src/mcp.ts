@@ -84,9 +84,27 @@ export interface SummaryResult extends Envelope {
 }
 
 export interface ListResult extends Envelope {
-  filters: { status: string; kind: string | null };
+  filters: {
+    status: string;
+    kind: string | null;
+    family: string | null;
+    queue: string | null;
+  };
   count: number;
   tickets: Ticket[];
+}
+
+function resolveQueueAlias(config: ProjectConfig, label: string): string | undefined {
+  const requested = label.trim().toLowerCase();
+  const configured = config.queues.find((entry) => entry.prefix.toLowerCase() === requested);
+  if (configured) {
+    return configured.prefix;
+  }
+  if (requested === "issues") return "ISSUE";
+  if (requested === "development") return "DEV";
+  if (requested === "user") return "USER";
+  if (requested === "users") return "USER";
+  return undefined;
 }
 
 export interface ShowTicketResult extends Envelope {
@@ -122,13 +140,28 @@ export async function summaryTool(store: AgentLoopStore): Promise<SummaryResult>
 
 export async function listTool(
   store: AgentLoopStore,
-  args: { status?: string; kind?: string } = {},
+  args: { status?: string; kind?: string; family?: string; queue?: string } = {},
 ): Promise<ListResult> {
   const status = (args.status ?? "all") as TicketStatus | "all";
-  const tickets = await store.listTickets({ status, kind: args.kind });
+  const queue = args.queue ? resolveQueueAlias(store.getConfig(), args.queue) ?? args.queue : undefined;
+  if (args.queue && !queue) {
+    const validQueues = ["ISSUE", ...store.getConfig().queues.map((entry) => entry.prefix), "DEV", "USER"];
+    throw new Error(`Unknown queue '${args.queue}'. Use -- one of: ${validQueues.join(", ")}`);
+  }
+  const tickets = await store.listTickets({
+    status,
+    kind: args.kind,
+    family: args.family,
+    queue,
+  });
   return {
     ...envelope(),
-    filters: { status: args.status ?? "all", kind: args.kind ?? null },
+    filters: {
+      status: args.status ?? "all",
+      kind: args.kind ?? null,
+      family: args.family ?? null,
+      queue: args.queue ?? null,
+    },
     count: tickets.length,
     tickets,
   };
@@ -497,17 +530,19 @@ export function createMcpServer(
   );
 
   server.registerTool(
-    "agentloop_list",
-    {
-      title: "List tickets",
-      description:
-        "Read-only list of tickets, optionally filtered by status (triaged|active|resolved|reopened|deferred|all) and kind.",
-      inputSchema: {
-        status: z.string().optional(),
-        kind: z.string().optional(),
+      "agentloop_list",
+      {
+        title: "List tickets",
+        description:
+          "Read-only list of tickets, optionally filtered by status (triaged|active|resolved|reopened|deferred|all), kind, family, or queue alias.",
+        inputSchema: {
+          status: z.string().optional(),
+          kind: z.string().optional(),
+          family: z.string().optional(),
+          queue: z.string().optional(),
+        },
+        annotations: readOnly,
       },
-      annotations: readOnly,
-    },
     async (args) => {
       try {
         return ok(await listTool(store, args));
