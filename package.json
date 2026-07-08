@@ -23,6 +23,8 @@
     "build": "tsc",
     "cli": "tsx src/cli.ts",
     "demo": "tsx scripts/demo-seed.ts",
+    "hooks:install": "node scripts/install-git-hooks.mjs",
+    "pre-push:scan": "node scripts/pre-push-secret-scan.mjs",
     "test": "tsx --test test/*.test.ts",
     "start": "npm run cli --",
     "prepare": "npm run build",

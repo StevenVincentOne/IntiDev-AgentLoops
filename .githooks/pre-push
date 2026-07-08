@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+set -e
+
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+node "$ROOT_DIR/scripts/pre-push-secret-scan.mjs"

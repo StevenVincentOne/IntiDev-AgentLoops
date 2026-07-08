@@ -2,7 +2,7 @@
 
 Date: 2026-06-05
 Status: Scaffold verified and runnable; ready to start porting Inti modules.
-Audience: the next agent/session, picking up cold from inside `/home/inti/AgentLoops`.
+Audience: the next agent/session, picking up cold from inside the AgentLoops repo root.
 
 ## TL;DR
 
@@ -14,14 +14,14 @@ map in the Inti repo, and the next concrete steps.
 
 ## Working decision (settled)
 
-- **Build everything HERE**, in `/home/inti/AgentLoops` — this is the canonical home going forward.
-- Use the Inti repo at `/home/inti/inti-docs` as the **reference** implementation to port FROM.
-  Direction of flow is **inti-docs → AgentLoops**.
+- **Build everything HERE**, in this repository checkout — this is the canonical home going forward.
+- Use the private implementation repo as the **reference** implementation to port FROM.
+  Direction of flow is **reference implementation → AgentLoops**.
 - The mature Inti code is deeply Inti-coupled (direct DB access, ingestion adapters, Admin
   Portal assumptions). It is **reference-and-rewrite behind adapter interfaces, NOT file-copy**.
   Only a few pure modules are near-copyable (alias logic, taxonomy/type defs, handoff prompt
   generation, guard-decision rules, relationship scoring).
-- inti-docs stays the stable production dogfood; do not churn it during Phases 1–5. It only
+- The private implementation stays the stable production dogfood; do not churn it during Phases 1–5. It only
   changes in Phase 6 (migrate Inti to consume the extracted packages).
 
 ## Environment / how to run
@@ -33,7 +33,7 @@ map in the Inti repo, and the next concrete steps.
   - `npm run lint`   (tsc --noEmit)
   - `npm run cli -- <args>`  (tsx `src/cli.ts`)
 - The compiled CLI is `dist/cli.js`; you can run it from any working dir with
-  `node /home/inti/AgentLoops/dist/cli.js <cmd>` — state is written to `<cwd>/.agentloops/state.json`.
+  `node ./dist/cli.js <cmd>` — state is written to `<cwd>/.agentloops/state.json`.
 - Note for cross-repo work from a Windows-rooted session: run builds/tests via
   `wsl -d Ubuntu -- bash -lc '...'` (native npm/node), and prefer `bash`/`find` over Glob/Grep,
   which time out over the `\\wsl$` mount. If running rooted in this dir, none of that applies.
@@ -84,7 +84,7 @@ map in the Inti repo, and the next concrete steps.
 
 ## Reference map in Inti (read-only — port FROM these)
 
-Absolute WSL paths under `/home/inti/inti-docs`:
+Reference files in the host implementation:
 
 | File | Lines | What it is |
 | --- | ---: | --- |
@@ -414,8 +414,8 @@ pattern so it's network-free and testable:
 - Umbrella tracking ticket in Inti: **DEV-000847** — record findings there until AgentLoops has
   its own mature dogfood ledger.
 - The plan is **mirrored in two files**; keep them synchronized:
-  - `/home/inti/AgentLoops/docs/tickets/2026-06-01_TICKETS_EXTRACTED_REPO_PLAN.md`
-  - `/home/inti/inti-docs/docs/issues-tickets/2026-06-01_TICKETS_EXTRACTED_REPO_PLAN.md`
+  - `docs/tickets/2026-06-01_TICKETS_EXTRACTED_REPO_PLAN.md`
+  - the corresponding plan file in the host implementation repo
 - **Committed + pushed** to `origin/main`: sessions 2 and 3 work (demo fixture, MCP server, CI gates,
   `package-lock.json`, README/docs/mcp). The canonical plan doc was already public (session 1).
 - **Still untracked (deliberately not pushed)**: the internal planning `docs/tickets/*.md` (novelty
@@ -426,7 +426,7 @@ pattern so it's network-free and testable:
 
 ## First action on resume
 
-From `/home/inti/AgentLoops`:
+From this repo root:
 
 ```bash
 npm install
@@ -437,6 +437,6 @@ node dist/cli.js help                              # sanity check (now lists `mc
 
 Then start step 5 (port Inti proven modules, in order). Begin with the **alias/kind config**
 reconciliation: AgentLoops currently derives aliases purely from `kind`; Inti
-(`/home/inti/inti-docs/src/shared/TicketAliases.ts`, ~75 lines, near-copyable) also derives `USER`
+(`src/shared/TicketAliases.ts` in the host implementation, ~75 lines, near-copyable) also derives `USER`
 from the `user_report` *source* and `DEV` from a set of kinds over a single numeric `ISSUE-N`. Port
 it as a pure module with **no Inti imports**, then move on to the source-convergence audit.

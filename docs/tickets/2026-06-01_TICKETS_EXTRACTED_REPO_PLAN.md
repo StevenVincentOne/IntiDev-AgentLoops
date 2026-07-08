@@ -11,19 +11,23 @@ The public extracted repo now exists:
 - Product name: `IntiDev AgentLoops`
 - Tagline: `Feedback Loops for Agentic Workflows`
 - Public repo: `https://github.com/StevenVincentOne/IntiDev-AgentLoops`
-- Local repo: `/home/inti/AgentLoops`
+- Local repo: this AgentLoops checkout (repository root)
 - Initial public scaffold pushed to `main` at commit `07457e9`
 - Current package name: `@stevenvincentone/intidev-agentloops`
 - Current CLI command: `agentloop`
 
 The first public baseline is intentionally small and clean. It contains a TypeScript CLI, JSON filesystem state in `.agentloops/state.json`, project config via `agentloop.config.json`, configurable ticket kinds/sources/aliases, simple family-based Pattern grouping, logo assets, GitHub issue templates, CI, MIT license, and starter docs.
 
-The Inti Reader implementation in `/home/inti/inti-docs` remains the mature dogfood implementation. It still contains the fuller ledger behavior: prior-art relationships, guard audits, resolution knowledge, source-specific ingestion/smoke/manual/user signals, the Admin Portal dashboard, and the current production-tested workflow. Agents should not restart extraction planning from scratch. Continue hardening the public repo and porting proven capabilities from the Inti implementation into reusable, config-backed AgentLoops modules.
+The Inti Reader implementation in the private host repository remains the mature dogfood implementation.
+It still contains the fuller ledger behavior: prior-art relationships, guard audits, resolution knowledge,
+source-specific ingestion/smoke/manual/user signals, the Admin Portal dashboard, and the current
+production-tested workflow. Continue hardening the public repo and porting proven capabilities from that
+reference into reusable, config-backed AgentLoops modules.
 
 This plan is intentionally mirrored in two locations:
 
-- `/home/inti/AgentLoops/docs/tickets/2026-06-01_TICKETS_EXTRACTED_REPO_PLAN.md`
-- `/home/inti/inti-docs/docs/issues-tickets/2026-06-01_TICKETS_EXTRACTED_REPO_PLAN.md`
+- `docs/tickets/2026-06-01_TICKETS_EXTRACTED_REPO_PLAN.md`
+- the same plan document in the private host repository
 
 Keep both copies synchronized until the extracted repo becomes the canonical planning home.
 
@@ -520,17 +524,17 @@ around it in Inti, for uncertain payoff and real migration risk to a feature tha
 Instead, treat the two Tickets implementations as **independently-specialized siblings** and port
 proven improvements selectively in both directions:
 
-- AgentLoops → inti-docs: pull over generalizable improvements made during/after extraction
+- AgentLoops → private host repo: pull over generalizable improvements made during/after extraction
   (e.g. redaction hooks, prior-art scoring refinements, GitHub Issues sync, guard-gap detection)
   where they'd benefit Inti's production ledger.
-- inti-docs → AgentLoops: pull over generalizable improvements made to Inti's Tickets since the
+- private host repo → AgentLoops: pull over generalizable improvements made to the source implementation since the
   extraction snapshot, rewritten as pure modules with no Inti imports (per the Phase 1 extraction
   principles).
 - Accept the tradeoff: this means **permanent duplication** between the two codebases (two things
   to maintain, no single source of truth, occasional drift) — in exchange for each staying
   optimized for its actual context instead of compromising to share code.
 
-Tracking: the two-way port-tracking work lives in `inti-docs` as **DEV-001142** — keep findings
+Tracking: the two-way port-tracking work is tracked as **DEV-001142** — keep findings
 and decisions there so they don't get lost. "Retiring duplicated in-repo service code" is
 explicitly **off the table** under this revision; do not attempt it without a fresh decision.
 
@@ -595,7 +599,7 @@ Defer:
 
 ## Immediate Next Step
 
-In `/home/inti/AgentLoops`, stabilize the pushed scaffold before adding bigger surfaces:
+In this repo, stabilize the pushed scaffold before adding bigger surfaces:
 
 1. run `npm install` and `npm run build`;
 2. fix any compile/runtime issues in the current CLI/store;

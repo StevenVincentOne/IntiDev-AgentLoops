@@ -385,6 +385,7 @@ When adding new sources or fields, include:
 1. a config-backed approach, not hardcoded assumptions,
 2. a short schema note in docs,
 3. a concise example command and expected output.
+4. run `npm run pre-push:scan` (and install `npm run hooks:install`) before sharing or pushing.
 
 ## License
 
