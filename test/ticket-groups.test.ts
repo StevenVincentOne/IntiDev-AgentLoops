@@ -176,14 +176,14 @@ test("ticketGroups surfaces narrower candidate splits within a broad family grou
 
     // Within the 3-member reader_ingestion family group, the two
     // export-tagged tickets share a narrower signal — a candidate split worth
-    // reviewing as its own (smaller) cluster before assuming all three share
-    // one cause. `ticketKeys` carries the human-facing alias (queue-routed —
-    // a2 was reported via `user_report` and so landed in the USER queue even
-    // though it's a `bug`), matching `near-duplicates`' `member.alias` convention.
+    // reviewing as its own (smaller) cluster before assuming all three share one
+    // cause. `ticketKeys` carries the human-facing alias (queue-routed).
+    // a2 is a `bug` from `user_report`, so with kind-first routing it now lands
+    // in the ISSUE queue.
     const split = family!.candidateSplits.find((entry) => entry.key === "tag:export");
     assert.ok(split, "expected a 'tag:export' candidate split inside the family group");
     assert.equal(split!.count, 2);
-    assert.deepEqual(split!.ticketKeys.sort(), ["ISSUE-000001", "USER-000002"]);
+    assert.deepEqual(split!.ticketKeys.sort(), ["ISSUE-000001", "ISSUE-000002"]);
 
     // Candidate splits never repeat the group's own basis key, and never
     // include a "split" that's the whole group (that's not a split at all).

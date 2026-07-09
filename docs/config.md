@@ -12,7 +12,7 @@
     { "kind": "feature", "defaultSeverity": "medium", "requiredFields": ["summary"] }
   ],
   "queues": [
-    { "prefix": "USER", "kinds": ["user_feedback"], "sources": ["user_report"] },
+    { "prefix": "USER", "kinds": ["user_feedback"] },
     { "prefix": "DEV", "kinds": ["feature", "task", "investigation", "tech_debt"] },
     { "prefix": "ISSUE", "kinds": ["bug", "incident"], "default": true }
   ],
@@ -32,15 +32,15 @@ Each kind can define:
 Canonical ids are always stored as `ISSUE-000123`. Each ticket also gets one
 user-facing **queue alias** derived from its `kind` and `source`:
 
-- `queues` are evaluated in order; the first whose `sources` includes the
-  ticket's source, or whose `kinds` includes its kind, wins.
-- a `sources` match takes that queue's precedence, so a `user_report`-sourced
-  bug routes to `USER-000123` even though `bug` is otherwise an `ISSUE` kind.
+- `queues` are evaluated in order.
+- within each queue, `kinds` is checked before `sources`.
+- a `user_report`-sourced bug routes to `ISSUE-000123` unless your queue config
+  intentionally says otherwise.
 - the queue marked `"default": true` is the fallback when nothing matches.
 
 With the default config that yields:
 
-- `USER-000123` for product/support feedback (kind `user_feedback` or source `user_report`)
+- `USER-000123` for user feedback (kind `user_feedback`)
 - `DEV-000123` for development work (`feature`, `task`, `investigation`, `tech_debt`)
 - `ISSUE-000123` for defects (`bug`, `incident`) and anything unrouted
 

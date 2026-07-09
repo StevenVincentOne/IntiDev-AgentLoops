@@ -85,16 +85,16 @@ export interface KindConfig {
 
 /**
  * A queue routes tickets to a single user-facing alias prefix. Queues are
- * evaluated in order (first match wins); a `source` match takes the precedence
- * of the queue it belongs to, so e.g. a `user_report`-sourced bug routes to the
- * USER queue rather than ISSUE.
+ * evaluated in order (first match wins); within each queue, a `kind` match is
+ * checked before `source`. A queue with only `sources` configured therefore acts
+ * as a source fallback when kind does not match.
  */
 export interface QueueConfig {
   /** Alias prefix, e.g. "USER", "DEV", "ISSUE". */
   prefix: string;
   /** Ticket kinds routed to this queue. */
   kinds?: TicketKind[];
-  /** Sources routed to this queue, overriding kind routing. */
+  /** Sources routed to this queue when this queue's kind does not match. */
   sources?: string[];
   /** Fallback queue when nothing else matches. Exactly one queue should set this. */
   default?: boolean;

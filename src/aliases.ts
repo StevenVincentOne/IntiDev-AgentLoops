@@ -15,10 +15,11 @@ export function canonicalKey(seq: number): string {
 /**
  * Resolve the single queue-alias prefix for a ticket from its kind and source.
  *
- * Ported from Inti's `TicketAliases` (USER → DEV → ISSUE precedence): a queue
- * matches when the ticket's `source` is in `queue.sources` OR its `kind` is in
- * `queue.kinds`. Queues are tried in config order, so the source override (e.g.
- * `user_report` → USER) wins for any kind. Falls back to the `default` queue.
+ * Queue resolution applies configured queue order and prioritizes each queue's
+ * kind match over source match. This intentionally keeps `kind` as the primary
+ * routing signal while still supporting explicit `source`-based routing where
+ * configured and no kind match exists for that queue. Falls back to the
+ * `default` queue when no match is found.
  */
 export function resolveQueuePrefix(
   input: { kind: string; source?: string },
@@ -26,8 +27,8 @@ export function resolveQueuePrefix(
 ): string {
   const source = input.source ?? "";
   for (const queue of config.queues) {
-    if (queue.sources?.includes(source)) return queue.prefix;
     if (queue.kinds?.includes(input.kind as TicketKind)) return queue.prefix;
+    if (queue.sources?.includes(source)) return queue.prefix;
   }
   const fallback = config.queues.find((queue) => queue.default);
   return fallback?.prefix ?? "ISSUE";

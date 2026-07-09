@@ -16,7 +16,7 @@ export const DEFAULT_CONFIG: ProjectConfig = {
     { kind: "task", defaultSeverity: "medium", requiredFields: ["summary"] },
   ],
   queues: [
-    { prefix: "USER", kinds: ["user_feedback"], sources: ["user_report"] },
+    { prefix: "USER", kinds: ["user_feedback"] },
     { prefix: "DEV", kinds: ["feature", "task", "investigation", "tech_debt"] },
     { prefix: "ISSUE", kinds: ["bug", "incident"], default: true },
   ],

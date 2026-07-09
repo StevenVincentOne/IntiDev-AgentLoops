@@ -4,12 +4,16 @@ import { DEFAULT_CONFIG } from "../src/config";
 import { canonicalKey, deriveAliases, padSeq, resolveQueuePrefix } from "../src/aliases";
 import { ProjectConfig } from "../src/types";
 
-test("resolveQueuePrefix routes by source override then kind (USER > DEV > ISSUE)", () => {
+test("resolveQueuePrefix prefers kind routing, with source fallback", () => {
   const cfg = DEFAULT_CONFIG;
 
-  // Source override: a user_report-sourced bug routes to USER, not ISSUE.
-  assert.equal(resolveQueuePrefix({ kind: "bug", source: "user_report" }, cfg), "USER");
-  // The user_feedback kind routes to USER regardless of source.
+  // User feedback is USER by kind, even when coming via user_report source.
+  assert.equal(resolveQueuePrefix({ kind: "user_feedback", source: "user_report" }, cfg), "USER");
+
+  // A bug from user_report source routes by kind to ISSUE.
+  assert.equal(resolveQueuePrefix({ kind: "bug", source: "user_report" }, cfg), "ISSUE");
+
+  // Kind routing for USER remains stable across source.
   assert.equal(resolveQueuePrefix({ kind: "user_feedback", source: "smoke" }, cfg), "USER");
 
   // Development kinds route to DEV.
@@ -30,7 +34,7 @@ test("resolveQueuePrefix routes by source override then kind (USER > DEV > ISSUE
 test("deriveAliases and canonicalKey pad and prefix correctly", () => {
   const cfg = DEFAULT_CONFIG;
   assert.deepEqual(deriveAliases({ kind: "feature", source: "agent" }, 3, cfg), ["DEV-000003"]);
-  assert.deepEqual(deriveAliases({ kind: "bug", source: "user_report" }, 42, cfg), ["USER-000042"]);
+  assert.deepEqual(deriveAliases({ kind: "bug", source: "user_report" }, 42, cfg), ["ISSUE-000042"]);
   assert.equal(canonicalKey(7), "ISSUE-000007");
   assert.equal(padSeq(12), "000012");
 });
