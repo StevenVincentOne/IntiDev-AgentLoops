@@ -491,6 +491,23 @@ export interface CreateTicketInput {
   priorArtHint?: PriorArtHint;
 }
 
+export interface TicketAmendInput {
+  title?: string;
+  summary?: string;
+  family?: string;
+  /** Optional field-level overrides for existing tickets (does not recompute aliases). */
+  severity?: Severity;
+  confidence?: Confidence;
+  tags?: string[];
+  handoffText?: string;
+}
+
+export interface TicketInstanceInput {
+  body: string;
+  type?: NoteType;
+  author?: string;
+}
+
 export interface ResolveInput {
   id: string;
   summary: string;

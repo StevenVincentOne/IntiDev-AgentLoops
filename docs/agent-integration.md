@@ -78,6 +78,11 @@ matching MCP tool name in parentheses.
   rather than editing the summary: `agentloop note <id> --type
   hypothesis|related_history|prior_fix|triage --body "..."`
   (`agentloop_note`).
+- If the new context belongs to an existing ticket and should live with that
+  ticket (including additional reproduction details, updated summary/title,
+  severity tuning, or new tags), amend it in-place:
+  `agentloop amend <id> --summary ... --add-instance "..." --instance-type triage`
+  (`agentloop_amend`) instead of creating a duplicate ticket.
 - **Before resolving a bug or incident, run a symptom-family sweep** to
   classify open tickets that share the same surface symptom: `agentloop sweep
   <id>` (`agentloop_sweep`). Review `likelySameSymptom` and

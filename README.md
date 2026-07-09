@@ -88,6 +88,7 @@ state fixture; run it with `npm test`.
 - `agentloop reopen <id>` reopen and record a recurrence reason
 - `agentloop defer <id> [--summary ...]` defer a ticket with an optional reason
 - `agentloop note <id> --type ... --body ...` add context notes
+- `agentloop amend <id> [--title ...] [--summary ...] [--family ...] [--severity ...] [--confidence ...] [--tags ...] [--handoff ...] [--add-instance ...] [--instance-type ...] [--instance-author ...]` update mutable fields on an existing ticket and optionally append a new instance note in one step
 - `agentloop guard <id> --guard-status ...` record guard decision
 - `agentloop handoff <id>` print a copyable agent handoff prompt
 - `agentloop patterns` list pattern groups
@@ -154,6 +155,7 @@ Write tools (only registered with `--write`):
 | --- | --- |
 | `agentloop_create` | create a ticket (`summary` required; `source` defaults to `agent`); optional `priorArtHint` records intake-time "history context" and, when it suggests prior art may exist, auto-surfaces candidates as `priorArtSuggestions` |
 | `agentloop_note` | append a non-resolution note |
+| `agentloop_amend` | update mutable ticket fields (`title`, `summary`, `family`, `severity`, `confidence`, `tags`, `handoff`) and optionally append one non-resolution `addInstance` note in one transaction |
 | `agentloop_workflow` | transition a ticket (`active` / `reopened` / `deferred`) |
 | `agentloop_resolve` | resolve with a summary, optional verification + guard; meaningful bug/incident/user_feedback tickets require `rootCauseCertificate` (see `config.rootCause`); evidence-sensitive families/kinds (`config.verification`) require `verificationBrief`; accepts `guardCommand`/`guardArtifactRef`/`guardDetectorKey` |
 | `agentloop_resolve_pattern` | resolve a Pattern and cascade the same evidence to its not-yet-resolved linked tickets; escalates to stricter fresh-evidence/broad-coverage checks once two or more linked tickets are evidence-sensitive, and validates atomically before mutating anything |

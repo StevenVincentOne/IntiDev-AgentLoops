@@ -3,7 +3,7 @@
 AgentLoops exposes a [Model Context Protocol](https://modelcontextprotocol.io)
 server so coding agents can use the ticket ledger directly. Writes are **opt-in**:
 the server is read-only by default and only registers the write tools (create /
-note / workflow / resolve / guard) when started with `--write`.
+amend / note / workflow / resolve / guard) when started with `--write`.
 
 ## Running
 
@@ -49,6 +49,7 @@ action, ticket }`, where `ticket` carries the canonical `id` and queue `aliases`
 | Tool | Input | Notes |
 | --- | --- | --- |
 | `agentloop_create` | `summary` (required), `title?`, `family?`, `kind?`, `source?`, `severity?`, `confidence?`, `tags?`, `handoff?` | `kind`/`family` default from config; `source` defaults to `agent` |
+| `agentloop_amend` | `id`, `title?`, `summary?`, `family?`, `severity?`, `confidence?`, `tags?`, `handoff?`, `addInstance?`, `instanceType?`, `instanceAuthor?` | Updates mutable ticket fields and optionally appends one non-resolution `addInstance` note for the same ticket in one request |
 | `agentloop_note` | `id`, `body` (required), `type?`, `author?` | `type` defaults to `triage`, `author` to `agent` |
 | `agentloop_workflow` | `id`, `status` (`active` \| `reopened` \| `deferred`), `reason?` | resolve via `agentloop_resolve`, not here |
 | `agentloop_resolve` | `id`, `summary` (required), `verification?`, `guardStatus?`, `guardSummary?`, `verificationBrief?` | Tickets in a configured evidence-sensitive family/kind (`config.verification`) require `verificationBrief` (`{ claimScope, affectedArtifactIds?, reportedLocations?, verificationPerformed, coverage, agentJudgment, reason }`) — deterministic guardrails check it's present and coherent, the agent's `agentJudgment`/`reason` supply the actual sufficiency call; see [Verification briefs](agent-integration.md#verification-briefs-deterministic-guardrails-vs-agent-judgment) |

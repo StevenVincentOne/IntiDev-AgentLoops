@@ -2,6 +2,8 @@
 import { loadConfig, writeDefaultConfig } from "./config";
 import {
   Confidence,
+  NoteType,
+  TicketAmendInput,
   Ticket,
   PatternStatus,
   PriorArtHint,
@@ -39,6 +41,7 @@ const COMMANDS = [
   "resolve",
   "reopen",
   "defer",
+  "amend",
   "note",
   "guard",
   "handoff",
@@ -175,6 +178,9 @@ function printHelp() {
   printLine("  reopen <id> --summary ...       reopen a resolved/reopen-risk item");
   printLine("  defer <id> [--summary ...]      defer a ticket (records an optional reason)");
   printLine("  note <id> --type ... --body ... add a non-resolution note");
+  printLine("  amend <id> [--title ...] [--summary ...] [--family ...] [--severity ...] [--confidence ...]");
+  printLine("    [--tags ...] [--handoff ...] [--add-instance ...] [--instance-type ...] [--instance-author ...]");
+  printLine("                                  amend an existing ticket and optionally append a new instance note");
   printLine("  guard <id> --guard-status ...   set guard decision");
   printLine("  handoff <id>                    print agent handoff prompt");
   printLine("  summary                         print loop stats");
@@ -971,6 +977,49 @@ async function cmdDefer(argv: string[], options: ArgMap) {
   printJson(ticket);
 }
 
+async function cmdAmend(argv: string[], options: ArgMap) {
+  const { store } = await ensureConfig();
+  const id = argv[1];
+  if (!id) {
+    throw new Error("amend requires <id>");
+  }
+
+  const updates: TicketAmendInput = {};
+  if (typeof options.title === "string") {
+    updates.title = options.title;
+  }
+  if (typeof options.summary === "string") {
+    updates.summary = options.summary;
+  }
+  if (typeof options.family === "string") {
+    updates.family = options.family;
+  }
+  if (typeof options.severity === "string") {
+    updates.severity = options.severity as TicketAmendInput["severity"];
+  }
+  if (typeof options.confidence === "string") {
+    updates.confidence = options.confidence as TicketAmendInput["confidence"];
+  }
+  if (typeof options.tags !== "undefined") {
+    updates.tags = toArray(options.tags);
+  }
+  if (typeof options.handoff === "string") {
+    updates.handoffText = options.handoff;
+  }
+
+  const addInstance = typeof options["add-instance"] === "string" ? options["add-instance"] : undefined;
+  const instance = addInstance
+    ? {
+        body: addInstance,
+        type: (typeof options["instance-type"] === "string" ? options["instance-type"] : undefined) as NoteType,
+        author: typeof options["instance-author"] === "string" ? options["instance-author"] : undefined,
+      }
+    : undefined;
+
+  const ticket = await store.amendTicket(id, updates, instance);
+  printJson(ticket);
+}
+
 async function cmdNote(argv: string[], options: ArgMap) {
   const { store } = await ensureConfig();
   const id = argv[1];
@@ -1259,6 +1308,9 @@ async function main() {
       break;
     case "defer":
       await cmdDefer(args, options);
+      break;
+    case "amend":
+      await cmdAmend(args, options);
       break;
     case "note":
       await cmdNote(args, options);

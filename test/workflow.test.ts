@@ -69,3 +69,31 @@ test("deferTicket works without a reason and records no note", async () => {
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test("amendTicket updates fields and adds a traceable instance note", async () => {
+  const dir = await freshDir();
+  try {
+    const store = new AgentLoopStore(dir, { ...DEFAULT_CONFIG });
+    const amended = await store.amendTicket("ISSUE-000001", {
+      title: "Export timeout now tracks long report failures",
+      tags: ["export", "timeout", "export"],
+    });
+    assert.equal(amended.title, "Export timeout now tracks long report failures");
+    assert.deepEqual(amended.tags, ["export", "timeout"]);
+    const noteAdded = await store.amendTicket(
+      "ISSUE-000001",
+      {
+        handoffText: "Observed again under heavy load with one additional packet capture",
+        severity: "high",
+      },
+      { body: "Added reproduction artifacts and screenshot", type: "hypothesis", author: "agent" },
+    );
+    assert.equal(noteAdded.handoffText, "Observed again under heavy load with one additional packet capture");
+    assert.equal(noteAdded.severity, "high");
+    assert.equal(noteAdded.notes.at(-1)?.body, "Added reproduction artifacts and screenshot");
+    assert.equal(noteAdded.notes.at(-1)?.type, "hypothesis");
+    assert.equal(noteAdded.notes.at(-1)?.author, "agent");
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

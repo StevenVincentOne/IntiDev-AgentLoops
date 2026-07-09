@@ -15,6 +15,8 @@ import {
   PriorArtHint,
   PriorArtTrustLevel,
   ProjectConfig,
+  TicketAmendInput,
+  TicketInstanceInput,
   RootCauseCertificate,
   Severity,
   Ticket,
@@ -214,7 +216,7 @@ export async function handoffTool(
  * disabled by default; an agent gets the read-only surface unless the operator
  * explicitly enables writes.
  */
-export type WriteAction = "created" | "noted" | "workflow" | "resolved" | "guard";
+export type WriteAction = "created" | "amended" | "noted" | "workflow" | "resolved" | "guard";
 
 export interface WriteResult extends Envelope {
   action: WriteAction;
@@ -322,6 +324,44 @@ export async function noteTool(
     args.author ?? MCP_ACTOR_SOURCE,
   );
   return { ...envelope(), action: "noted", ticket };
+}
+
+export async function amendTicketTool(
+  store: AgentLoopStore,
+  args: {
+    id: string;
+    title?: string;
+    summary?: string;
+    family?: string;
+    severity?: Severity;
+    confidence?: Confidence;
+    tags?: string[];
+    handoff?: string;
+    addInstance?: string;
+    instanceType?: NoteType;
+    instanceAuthor?: string;
+  },
+): Promise<WriteResult> {
+  const updates: TicketAmendInput = {
+    ...args.title !== undefined ? { title: args.title } : {},
+    ...args.summary !== undefined ? { summary: args.summary } : {},
+    ...args.family !== undefined ? { family: args.family } : {},
+    ...args.severity !== undefined ? { severity: args.severity } : {},
+    ...args.confidence !== undefined ? { confidence: args.confidence } : {},
+    ...args.tags !== undefined ? { tags: args.tags } : {},
+    ...args.handoff !== undefined ? { handoffText: args.handoff } : {},
+  };
+
+  const instance: TicketInstanceInput | undefined = args.addInstance
+    ? {
+        body: args.addInstance,
+        type: args.instanceType,
+        author: args.instanceAuthor,
+      }
+    : undefined;
+
+  const ticket = await store.amendTicket(args.id, updates, instance);
+  return { ...envelope(), action: "amended", ticket };
 }
 
 export async function workflowTool(
@@ -500,7 +540,7 @@ export interface CreateMcpServerOptions {
 /**
  * Build an MCP server over the given store. By default only the read-only tools
  * are exposed; pass `allowWrites: true` to also register the guarded write
- * tools (create / note / workflow / resolve / guard).
+ * tools (create / amend / note / workflow / resolve / guard).
  */
 export function createMcpServer(
   store: AgentLoopStore,
@@ -915,6 +955,39 @@ function registerWriteTools(server: McpServer, store: AgentLoopStore): void {
     async (args) => {
       try {
         return ok(await noteTool(store, args));
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "agentloop_amend",
+    {
+      title: "Amend ticket",
+      description:
+        "Update mutable ticket fields and optionally append one non-resolution evidence note (`addInstance`) for the same ticket.",
+      inputSchema: {
+        id: z.string(),
+        title: z.string().optional(),
+        summary: z.string().optional(),
+        family: z.string().optional(),
+        severity: z.enum(SEVERITIES).optional(),
+        confidence: z.enum(CONFIDENCES).optional(),
+        tags: z.array(z.string()).optional(),
+        handoff: z.string().optional(),
+        addInstance: z.string().optional().describe("Optional non-resolution note body appended after applying updates"),
+        instanceType: z
+          .enum(NOTE_TYPES)
+          .optional()
+          .describe("Optional note type for the instance (defaults to triage)"),
+        instanceAuthor: z.string().optional().describe("Optional note author for the appended instance"),
+      },
+      annotations: write,
+    },
+    async (args) => {
+      try {
+        return ok(await amendTicketTool(store, args));
       } catch (error) {
         return fail(error);
       }

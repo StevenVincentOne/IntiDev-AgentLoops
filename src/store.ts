@@ -13,6 +13,8 @@ import {
   PriorArtTrustLevel,
   ProjectConfig,
   RedactionContext,
+  TicketAmendInput,
+  TicketInstanceInput,
   ResolveInput,
   SiblingClassification,
   Ticket,
@@ -331,6 +333,64 @@ export class AgentLoopStore {
       author,
       createdAt: nowIso(),
     });
+    ticket.updatedAt = nowIso();
+    await this.persist();
+    return ticket;
+  }
+
+  async amendTicket(
+    rawId: string,
+    updates: TicketAmendInput,
+    instance?: TicketInstanceInput,
+  ): Promise<Ticket> {
+    const ticket = await this.transitionTicket(rawId, undefined);
+    const ctx = (field: string): RedactionContext => ({ field, ticketKind: ticket.kind, source: ticket.source });
+    let changed = false;
+
+    if (updates.title !== undefined) {
+      ticket.title = this.redact(updates.title, ctx("title"));
+      changed = true;
+    }
+    if (updates.summary !== undefined) {
+      ticket.summary = this.redact(updates.summary, ctx("summary"));
+      changed = true;
+    }
+    if (updates.family !== undefined) {
+      ticket.family = updates.family;
+      changed = true;
+    }
+    if (updates.severity !== undefined) {
+      ticket.severity = updates.severity;
+      changed = true;
+    }
+    if (updates.confidence !== undefined) {
+      ticket.confidence = updates.confidence;
+      changed = true;
+    }
+    if (updates.tags !== undefined) {
+      ticket.tags = Array.from(new Set(updates.tags));
+      changed = true;
+    }
+    if (updates.handoffText !== undefined) {
+      ticket.handoffText = updates.handoffText ? this.redact(updates.handoffText, ctx("handoffText")) : undefined;
+      changed = true;
+    }
+
+    if (instance && instance.body !== undefined) {
+      ticket.notes.push({
+        id: `${ticket.id}-note-${Date.now()}`,
+        type: instance.type ?? "triage",
+        body: this.redact(instance.body, this.noteCtx(ticket)),
+        author: instance.author,
+        createdAt: nowIso(),
+      });
+      changed = true;
+    }
+
+    if (!changed) {
+      throw new Error("amend requires at least one field update or an added instance note");
+    }
+
     ticket.updatedAt = nowIso();
     await this.persist();
     return ticket;

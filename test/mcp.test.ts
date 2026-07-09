@@ -14,6 +14,7 @@ import {
   showTool,
   summaryTool,
   createTicketTool,
+  amendTicketTool,
   noteTool,
   workflowTool,
   resolveTool,
@@ -257,6 +258,27 @@ test("noteTool / workflowTool / guardTool mutate a ticket", async () => {
   });
 });
 
+test("amendTicketTool updates ticket fields and appends an instance note", async () => {
+  await withSeededStore(async (store) => {
+    const amended = await amendTicketTool(store, {
+      id: "ISSUE-000001",
+      summary: "Export smoke test timing out in longer reports",
+      tags: ["timeout", "export", "timeout"],
+      addInstance: "Repro step: reproduce with 500-page report",
+      instanceType: "hypothesis",
+      instanceAuthor: "agent",
+    });
+
+    assert.equal(amended.action, "amended");
+    assert.equal(amended.ticket.id, "ISSUE-000001");
+    assert.equal(amended.ticket.summary, "Export smoke test timing out in longer reports");
+    assert.deepEqual(amended.ticket.tags, ["timeout", "export"]);
+    assert.equal(amended.ticket.notes.at(-1)?.body, "Repro step: reproduce with 500-page report");
+    assert.equal(amended.ticket.notes.at(-1)?.type, "hypothesis");
+    assert.equal(amended.ticket.notes.at(-1)?.author, "agent");
+  });
+});
+
 test("resolveTool records summary, verification, and guard", async () => {
   await withSeededStore(async (store) => {
     const resolved = await resolveTool(store, {
@@ -289,14 +311,16 @@ test("write tools are gated: absent by default, present and usable with allowWri
       await ro.close();
     }
 
-    // Write-enabled server: 15 read + 12 write tools; a create round-trips through show.
+    // Write-enabled server: 15 read + 13 write tools; a create round-trips through show.
     const rw = createMcpServer(store, { allowWrites: true });
     const rwClient = await connectedClient(rw);
     try {
       const tools = (await rwClient.listTools()).tools;
-      assert.equal(tools.length, 27);
+      assert.equal(tools.length, 28);
       const createTool = tools.find((t) => t.name === "agentloop_create");
       assert.equal(createTool?.annotations?.readOnlyHint, false);
+      const amendTool = tools.find((t) => t.name === "agentloop_amend");
+      assert.equal(amendTool?.annotations?.readOnlyHint, false);
 
       const repairTool = tools.find((t) => t.name === "agentloop_workflow_repair");
       assert.equal(repairTool?.annotations?.readOnlyHint, false);
@@ -313,6 +337,21 @@ test("write tools are gated: absent by default, present and usable with allowWri
         arguments: { id: createdJson.ticket.id },
       });
       assert.equal(JSON.parse(textOf(shown)).ticket.summary, "Reported via MCP");
+
+      const amended = await rwClient.callTool({
+        name: "agentloop_amend",
+        arguments: {
+          id: createdJson.ticket.id,
+          title: "Reproducible export regression",
+          addInstance: "Captured logs from browser replay",
+          instanceType: "triage",
+          instanceAuthor: "agent",
+        },
+      });
+      const amendedJson = JSON.parse(textOf(amended));
+      assert.equal(amendedJson.action, "amended");
+      assert.equal(amendedJson.ticket.title, "Reproducible export regression");
+      assert.equal(amendedJson.ticket.notes.at(-1)?.body, "Captured logs from browser replay");
     } finally {
       await rwClient.close();
       await rw.close();
